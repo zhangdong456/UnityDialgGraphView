@@ -1,0 +1,44 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+namespace DialogueSystem
+{
+    /// <summary>
+    /// 选择节点里的一个选项。
+    /// 可以挂任意多个条件(DialogueCondition 子类),全部满足时该选项才会显示给玩家。
+    /// </summary>
+    [Serializable]
+    public class ChoiceOption
+    {
+        public string choiceText;
+
+        [Tooltip("全部满足时才显示该选项;留空表示无条件")]
+        [SerializeReference]
+        public List<DialogueCondition> conditions = new List<DialogueCondition>();
+
+        public bool IsVisible(DialogueContext context)
+        {
+            if (conditions == null) return true;
+            return conditions.All(c => c == null || c.Evaluate(context));
+        }
+    }
+
+    /// <summary>
+    /// 选择节点:NPC 说一段话并提供多个选项,每个选项一个输出端口。
+    /// 运行时按条件过滤后交给 UI,玩家选择后沿对应端口继续。
+    /// </summary>
+    [Serializable]
+    public class ChoiceNode : DialogueNodeData
+    {
+        public string speakerName;
+
+        [TextArea(2, 6)]
+        public string dialogueText;
+
+        public List<ChoiceOption> choices = new List<ChoiceOption>();
+
+        public override string GetSummary() => $"共 {choices.Count} 个选项";
+    }
+}
