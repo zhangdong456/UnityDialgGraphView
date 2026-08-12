@@ -16,6 +16,7 @@ namespace DialogueSystem
     /// 整数比较条件:比较黑板上的一个整数值。
     /// 例如"金币数大于等于 50":key = "gold", op = GreaterOrEqual, value = 50。
     /// </summary>
+    [DialogueEditorName("整数比较", "比较黑板中的整数值")]
     [Serializable]
     public class IntCompareCondition : DialogueCondition
     {

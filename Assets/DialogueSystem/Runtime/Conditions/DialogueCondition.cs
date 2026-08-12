@@ -13,6 +13,6 @@ namespace DialogueSystem
         public abstract bool Evaluate(DialogueContext context);
 
         /// <summary>编辑器里显示的摘要。</summary>
-        public virtual string GetSummary() => GetType().Name;
+        public virtual string GetSummary() => DialogueTypeMetadata.GetDisplayName(GetType());
     }
 }

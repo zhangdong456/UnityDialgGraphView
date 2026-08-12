@@ -3,6 +3,7 @@ using System;
 namespace DialogueSystem
 {
     /// <summary>任务状态条件:某个任务处于指定状态(未接取/进行中/已完成)时满足。</summary>
+    [DialogueEditorName("任务状态", "检查任务当前状态")]
     [Serializable]
     public class QuestStateCondition : DialogueCondition
     {

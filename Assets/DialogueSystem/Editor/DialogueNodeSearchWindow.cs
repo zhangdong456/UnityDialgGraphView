@@ -32,7 +32,9 @@ namespace DialogueSystem.Editor
 
             foreach (var type in types)
             {
-                tree.Add(new SearchTreeEntry(new GUIContent(DialogueGraphNode.GetDisplayName(type)))
+                tree.Add(new SearchTreeEntry(new GUIContent(
+                    DialogueGraphNode.GetDisplayName(type),
+                    DialogueTypeMetadata.GetDescription(type)))
                 {
                     level = 1,
                     userData = type

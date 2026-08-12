@@ -3,6 +3,7 @@ using System;
 namespace DialogueSystem
 {
     /// <summary>事件模板:为玩家接取一个任务。</summary>
+    [DialogueEditorName("接取任务", "把指定任务设置为进行中")]
     [Serializable]
     public class AddQuestEvent : DialogueEvent
     {

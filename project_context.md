@@ -14,6 +14,7 @@ Assets/DialogueSystem/
 ├── Runtime/                      # 运行时程序集
 │   ├── DialogueGraphAsset.cs     # 对话图资产;内含 NodeLink(fromGuid/fromPort/toGuid)
 │   ├── DialogueNodeData.cs       # 节点基类(guid、position、GetSummary)
+│   ├── DialogueEditorMetadata.cs # 编辑器显示名称/备注特性与类型元数据读取
 │   ├── Nodes/                    # StartNode(唯一入口)/ EndNode / DialogueNode / ChoiceNode(ChoiceOption)
 │   │                             #   / StateBranchNode(BranchCase) / WaitNode / EventNode / JumpNode
 │   ├── Conditions/               # DialogueCondition 基类 + IntCompareCondition / BoolFlagCondition / QuestStateCondition
@@ -37,6 +38,7 @@ Assets/DialogueSystem/
 - 入口固定为 StartNode:全图唯一、编辑器自动创建、不可删除、不出现在创建菜单;`DialogueGraphAsset.GetEntryNode()` 优先返回 StartNode,旧资产无 StartNode 时退化为原 `entryNodeGuid`(打开图时会自动补一个 StartNode 并连到原入口)
 - 端口序号约定:单输出节点恒为 0;选择节点 = 选项下标;分支节点 = 分支下标,`cases.Count` 为"默认"出口
 - `ChoiceNode` 只保存 `ChoiceOption` 列表;说话者和正文归 `DialogueNode`,运行时 `DialoguePlayer.OnChoice` 签名为 `(choices, callback)`
+- 自定义节点/条件/事件可使用 `[DialogueEditorName("显示名称", "备注")]`;编辑器通过 `DialogueTypeMetadata` 读取名称和描述,`GetSummary()` 显示实例摘要
 - 扩展方式:继承 `DialogueNodeData` / `DialogueCondition` / `DialogueEvent`,TypeCache 与 SerializeReference 选择器自动发现,无需注册
 - 状态读写统一走 `DialogueContext`(`Blackboard.SetInt/GetInt`、`Quests.AddQuest/CompleteQuest/GetStatus`)
 - 编辑器保存是手动的:工具栏"保存"按钮或关窗提示;`hasUnsavedChanges` 标记脏状态

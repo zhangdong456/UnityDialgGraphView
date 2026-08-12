@@ -499,6 +499,9 @@ namespace DialogueSystem.Editor
                 var typeName = managedValue == null
                     ? "未选择类型"
                     : GetManagedTypeDisplayName(managedValue.GetType());
+                var summary = GetManagedReferenceSummary(managedValue);
+                if (!string.IsNullOrEmpty(summary) && summary != typeName)
+                    typeName += $" - {summary}";
 
                 EditorGUILayout.BeginVertical("helpBox");
                 EditorGUILayout.BeginHorizontal();
@@ -564,7 +567,9 @@ namespace DialogueSystem.Editor
             foreach (var type in types)
             {
                 var capturedType = type;
-                menu.AddItem(new GUIContent(GetManagedTypeDisplayName(capturedType)), false, () =>
+                menu.AddItem(new GUIContent(
+                    GetManagedTypeDisplayName(capturedType),
+                    DialogueTypeMetadata.GetDescription(capturedType)), false, () =>
                 {
                     try
                     {
@@ -604,8 +609,18 @@ namespace DialogueSystem.Editor
                 .OrderBy(t => t.FullName);
         }
 
-        static string GetManagedTypeDisplayName(Type type) =>
-            ObjectNames.NicifyVariableName(type.Name);
+        static string GetManagedTypeDisplayName(Type type)
+        {
+            var customName = DialogueTypeMetadata.GetDisplayName(type);
+            return customName == type.Name ? ObjectNames.NicifyVariableName(type.Name) : customName;
+        }
+
+        static string GetManagedReferenceSummary(object value)
+        {
+            if (value is DialogueCondition condition) return condition.GetSummary();
+            if (value is DialogueEvent dialogueEvent) return dialogueEvent.GetSummary();
+            return string.Empty;
+        }
 
         static bool IsInspectableField(FieldInfo field)
         {

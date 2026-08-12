@@ -3,6 +3,7 @@ using System;
 namespace DialogueSystem
 {
     /// <summary>事件模板:完成一个任务。</summary>
+    [DialogueEditorName("完成任务", "把指定任务设置为已完成")]
     [Serializable]
     public class CompleteQuestEvent : DialogueEvent
     {

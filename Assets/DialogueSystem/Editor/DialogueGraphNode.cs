@@ -66,7 +66,8 @@ namespace DialogueSystem.Editor
             if (typeof(WaitNode).IsAssignableFrom(type)) return "等待节点";
             if (typeof(EventNode).IsAssignableFrom(type)) return "事件节点";
             if (typeof(JumpNode).IsAssignableFrom(type)) return "跳转节点";
-            return ObjectNames.NicifyVariableName(type.Name);
+            var customName = DialogueTypeMetadata.GetDisplayName(type);
+            return customName == type.Name ? ObjectNames.NicifyVariableName(type.Name) : customName;
         }
 
         List<string> GetOutputPortNames()

@@ -73,6 +73,21 @@ public class AddQuestEvent : DialogueEvent   // 内置模板,可直接参考
 
 继承 `DialogueEvent` 后,在事件节点的 `Events` 列表里点 "+" 就能选到它。内置 `AddQuestEvent` / `CompleteQuestEvent` / `SetIntEvent` 三个模板,可直接照抄改写,在 `Execute` 里对接你自己的任务/背包系统。完整的逐步配置说明见 [`Assets/DialogueSystem/使用手册.md`](Assets/DialogueSystem/使用手册.md)。
 
+### 自定义编辑器名称和备注
+
+自定义节点、条件或事件可以使用 `DialogueEditorName` 自定义编辑器显示名称和鼠标提示,不会再直接显示 C# 类名:
+
+```csharp
+[DialogueEditorName("增加金币", "把玩家金币增加指定数量")]
+public class AddGoldEvent : DialogueEvent
+{
+    public int amount;
+    public override string GetSummary() => $"增加金币 {amount}";
+}
+```
+
+该名称会用于 GraphView 节点标题、创建节点菜单、条件类型菜单和事件类型菜单。`GetSummary()` 用于显示当前实例的具体配置摘要。
+
 ### 自定义节点
 
 继承 `DialogueNodeData` 即可,会自动出现在图编辑器的创建菜单中(默认一个输入 + 一个输出端口,运行时默认沿 0 号端口继续)。如需自定义端口规则或运行行为,扩展 `DialogueGraphNode.GetOutputPortNames` 与 `DialoguePlayer.Process`。
