@@ -19,7 +19,7 @@ namespace DialogueSystem
 
         public bool Matches(DialogueContext context)
         {
-            if (conditions == null || conditions.Count == 0) return false;
+            if (conditions == null || conditions.Count == 0 || context == null) return false;
             return conditions.All(c => c != null && c.Evaluate(context));
         }
     }
@@ -38,12 +38,13 @@ namespace DialogueSystem
         /// <summary>返回命中的输出端口下标;cases.Count 表示"默认"出口。</summary>
         public int Evaluate(DialogueContext context)
         {
+            if (cases == null) return 0;
             for (int i = 0; i < cases.Count; i++)
                 if (cases[i] != null && cases[i].Matches(context))
                     return i;
             return cases.Count;
         }
 
-        public override string GetSummary() => $"共 {cases.Count} 条分支 + 默认";
+        public override string GetSummary() => $"共 {(cases == null ? 0 : cases.Count)} 条分支 + 默认";
     }
 }

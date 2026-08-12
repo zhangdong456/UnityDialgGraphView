@@ -22,7 +22,9 @@ namespace DialogueSystem.Editor
         DialogueGraphView graphView;
         ScrollView inspectorPanel;
         ObjectField assetField;
+        Label statusLabel;
         string inspectedGuid;
+        bool keyHandlerRegistered;
         // 详情面板当前绑定的 SerializedObject。
         // 必须存为成员变量:若是局部变量,GC 回收后原生对象被销毁,
         // 绑定它的 PropertyField 会全部渲染为空白。
@@ -61,15 +63,27 @@ namespace DialogueSystem.Editor
         void ConstructUI()
         {
             rootVisualElement.Clear();
+            rootVisualElement.style.backgroundColor = new Color(0.055f, 0.06f, 0.08f);
 
             var toolbar = new Toolbar();
             assetField = new ObjectField("对话资产") { objectType = typeof(DialogueGraphAsset) };
             assetField.SetValueWithoutNotify(asset);
             assetField.RegisterValueChangedCallback(e => Load(e.newValue as DialogueGraphAsset));
-            assetField.style.width = 320;
+            assetField.style.minWidth = 280;
+            assetField.style.maxWidth = 420;
             toolbar.Add(assetField);
             toolbar.Add(new ToolbarSpacer { flex = true });
-            toolbar.Add(new ToolbarButton(Save) { text = "保存" });
+            var saveButton = new ToolbarButton(Save) { text = "保存" };
+            saveButton.tooltip = "保存当前对话图 (Ctrl/Cmd + S)";
+            toolbar.Add(saveButton);
+            var frameButton = new ToolbarButton(FrameAll) { text = "聚焦全部" };
+            frameButton.tooltip = "让右侧图视图显示全部节点";
+            toolbar.Add(frameButton);
+            statusLabel = new Label();
+            statusLabel.style.marginLeft = 8;
+            statusLabel.style.marginRight = 8;
+            statusLabel.style.color = new Color(0.65f, 0.7f, 0.78f);
+            toolbar.Add(statusLabel);
             rootVisualElement.Add(toolbar);
 
             var split = new TwoPaneSplitView(0, 300, TwoPaneSplitViewOrientation.Horizontal);
@@ -77,6 +91,7 @@ namespace DialogueSystem.Editor
 
             inspectorPanel = new ScrollView();
             inspectorPanel.style.minWidth = 220;
+            inspectorPanel.style.backgroundColor = new Color(0.085f, 0.095f, 0.125f);
             split.Add(inspectorPanel);
 
             graphView = new DialogueGraphView(this);
@@ -89,16 +104,52 @@ namespace DialogueSystem.Editor
             split.Add(graphContainer);
 
             rootVisualElement.Add(split);
+            if (!keyHandlerRegistered)
+            {
+                rootVisualElement.RegisterCallback<KeyDownEvent>(OnRootKeyDown);
+                keyHandlerRegistered = true;
+            }
+            UpdateToolbarStatus();
             RebuildInspector();
+        }
+
+        void OnRootKeyDown(KeyDownEvent evt)
+        {
+            if (evt.keyCode != KeyCode.S || (!evt.ctrlKey && !evt.commandKey)) return;
+            Save();
+            evt.StopPropagation();
         }
 
         void Load(DialogueGraphAsset newAsset)
         {
+            if (asset == newAsset)
+            {
+                assetField?.SetValueWithoutNotify(asset);
+                return;
+            }
+
+            if (hasUnsavedChanges && asset != null)
+            {
+                var result = EditorUtility.DisplayDialogComplex(
+                    "对话图有未保存修改",
+                    $"是否先保存 {asset.name} 的修改?",
+                    "保存", "放弃", "取消");
+                if (result == 0)
+                    Save();
+                else if (result == 2)
+                {
+                    assetField?.SetValueWithoutNotify(asset);
+                    return;
+                }
+            }
+
             asset = newAsset;
             assetField?.SetValueWithoutNotify(asset);
             hasUnsavedChanges = false;
             if (asset != null && graphView != null) Populate();
+            else graphView?.ClearView();
             titleContent = new GUIContent(asset == null ? "Dialogue Graph" : $"Dialogue Graph - {asset.name}");
+            UpdateToolbarStatus();
             RebuildInspector();
         }
 
@@ -111,6 +162,7 @@ namespace DialogueSystem.Editor
             EditorUtility.SetDirty(asset);
             AssetDatabase.SaveAssetIfDirty(asset);
             hasUnsavedChanges = false;
+            UpdateToolbarStatus();
             // 刚创建而未入资产的节点现在可以正常显示详情了
             RebuildInspector();
         }
@@ -127,13 +179,34 @@ namespace DialogueSystem.Editor
             base.SaveChanges();
         }
 
-        public void NotifyGraphChanged() => hasUnsavedChanges = true;
+        public void NotifyGraphChanged()
+        {
+            hasUnsavedChanges = true;
+            UpdateToolbarStatus();
+        }
+
+        void FrameAll()
+        {
+            graphView?.FrameAll();
+        }
 
         void Update()
         {
             if (graphView == null) return;
             var guid = graphView.GetSelectedNodeData()?.guid;
             if (guid != inspectedGuid) RebuildInspector();
+            UpdateToolbarStatus();
+        }
+
+        void UpdateToolbarStatus()
+        {
+            if (statusLabel == null) return;
+            statusLabel.text = asset == null
+                ? "未选择资产"
+                : (hasUnsavedChanges ? "● 有未保存修改" : "✓ 已保存");
+            statusLabel.style.color = hasUnsavedChanges
+                ? new Color(1f, 0.72f, 0.32f)
+                : new Color(0.45f, 0.82f, 0.58f);
         }
 
         void RebuildInspector()
@@ -152,6 +225,7 @@ namespace DialogueSystem.Editor
             header.style.paddingTop = 6;
             header.style.paddingLeft = 6;
             header.style.paddingBottom = 4;
+            header.style.color = new Color(0.9f, 0.93f, 0.98f);
             inspectorPanel.Add(header);
 
             if (asset == null)
@@ -166,6 +240,16 @@ namespace DialogueSystem.Editor
             }
 
             var data = graphView.GetSelectedNodeData();
+            if (data == null)
+            {
+                inspectorPanel.Add(MakeHint("节点数据已被删除,请重新选择一个节点。"));
+                return;
+            }
+            var typeLabel = new Label(DialogueGraphNode.GetDisplayName(data.GetType()));
+            typeLabel.style.paddingLeft = 6;
+            typeLabel.style.paddingBottom = 6;
+            typeLabel.style.color = new Color(0.45f, 0.75f, 1f);
+            inspectorPanel.Add(typeLabel);
             if (data is StartNode)
             {
                 inspectorPanel.Add(MakeHint("开始节点:对话从这里开始,全图唯一,不可删除。\n把它的输出端口连到第一个要执行的节点。"));
@@ -227,7 +311,10 @@ namespace DialogueSystem.Editor
                         var prop = nodeProp.FindPropertyRelative(field.Name);
                         if (prop == null) continue;
 
-                        EditorGUILayout.PropertyField(prop, true);
+                        if (data is DialogueNode && field.Name == nameof(DialogueNode.dialogueText))
+                            DrawAdaptiveTextArea(prop);
+                        else
+                            EditorGUILayout.PropertyField(prop, true);
                         drawn++;
                     }
                 }
@@ -257,10 +344,40 @@ namespace DialogueSystem.Editor
             return label;
         }
 
+        /// <summary>
+        /// 对话正文使用不设上限的自适应文本框。
+        /// TextAreaAttribute 的 maxLines 会把长文本截在固定高度,不适合编辑长对话;
+        /// 这里保留原来的最小两行高度,并按换行和自动换行后的真实高度扩展。
+        /// </summary>
+        static void DrawAdaptiveTextArea(SerializedProperty property)
+        {
+            var style = new GUIStyle(EditorStyles.textArea)
+            {
+                wordWrap = true,
+                richText = false,
+                padding = new RectOffset(5, 5, 4, 4)
+            };
+
+            var label = new GUIContent(property.displayName);
+            var previewWidth = Mathf.Max(100f, EditorGUIUtility.currentViewWidth
+                - EditorGUIUtility.labelWidth - 30f);
+            var text = property.stringValue ?? string.Empty;
+            var measuredHeight = style.CalcHeight(new GUIContent(text), previewWidth);
+            var minimumHeight = EditorGUIUtility.singleLineHeight * 2f + 10f;
+            var height = Mathf.Max(minimumHeight, measuredHeight + 2f);
+            var rect = EditorGUILayout.GetControlRect(true, height);
+            var textRect = EditorGUI.PrefixLabel(rect, label);
+
+            EditorGUI.BeginChangeCheck();
+            var newText = EditorGUI.TextArea(textRect, text, style);
+            if (EditorGUI.EndChangeCheck())
+                property.stringValue = newText;
+        }
+
         static SerializedProperty FindNodeProperty(SerializedObject so, string guid)
         {
             var nodes = so.FindProperty("nodes");
-            if (nodes == null) return null;
+            if (nodes == null || !nodes.isArray) return null;
             for (int i = 0; i < nodes.arraySize; i++)
             {
                 var element = nodes.GetArrayElementAtIndex(i);

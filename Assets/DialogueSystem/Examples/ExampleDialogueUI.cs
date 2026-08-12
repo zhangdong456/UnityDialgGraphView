@@ -62,11 +62,10 @@ namespace DialogueSystem.Examples
             panelVisible = true;
         }
 
-        void HandleChoice(string speakerName, string content,
-            List<DialoguePlayer.ChoiceInfo> visibleChoices, Action<int> callback)
+        void HandleChoice(List<DialoguePlayer.ChoiceInfo> visibleChoices, Action<int> callback)
         {
-            speaker = speakerName;
-            text = content;
+            speaker = string.Empty;
+            text = string.Empty;
             currentChoices = visibleChoices;
             choiceCallback = callback;
             continueCallback = null;
@@ -104,8 +103,12 @@ namespace DialogueSystem.Examples
             GUI.Box(rect, GUIContent.none);
             GUILayout.BeginArea(rect);
             GUILayout.Space(6);
-            GUILayout.Label($"【{speaker}】");
-            GUILayout.Label(text);
+            if (!string.IsNullOrEmpty(speaker))
+                GUILayout.Label($"【{speaker}】");
+            if (!string.IsNullOrEmpty(text))
+                GUILayout.Label(text);
+            if (currentChoices != null)
+                GUILayout.Label("请选择:");
             GUILayout.FlexibleSpace();
 
             if (currentChoices != null)

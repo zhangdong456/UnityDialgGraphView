@@ -36,6 +36,7 @@ Assets/DialogueSystem/
 - 命名空间:运行时 `DialogueSystem`,编辑器 `DialogueSystem.Editor`,示例 `DialogueSystem.Examples`
 - 入口固定为 StartNode:全图唯一、编辑器自动创建、不可删除、不出现在创建菜单;`DialogueGraphAsset.GetEntryNode()` 优先返回 StartNode,旧资产无 StartNode 时退化为原 `entryNodeGuid`(打开图时会自动补一个 StartNode 并连到原入口)
 - 端口序号约定:单输出节点恒为 0;选择节点 = 选项下标;分支节点 = 分支下标,`cases.Count` 为"默认"出口
+- `ChoiceNode` 只保存 `ChoiceOption` 列表;说话者和正文归 `DialogueNode`,运行时 `DialoguePlayer.OnChoice` 签名为 `(choices, callback)`
 - 扩展方式:继承 `DialogueNodeData` / `DialogueCondition` / `DialogueEvent`,TypeCache 与 SerializeReference 选择器自动发现,无需注册
 - 状态读写统一走 `DialogueContext`(`Blackboard.SetInt/GetInt`、`Quests.AddQuest/CompleteQuest/GetStatus`)
 - 编辑器保存是手动的:工具栏"保存"按钮或关窗提示;`hasUnsavedChanges` 标记脏状态
@@ -49,20 +50,22 @@ Assets/DialogueSystem/
 - 事件系统(含加任务/完成任务/改数值模板) — `Runtime/Events/*.cs`
 - 运行上下文(黑板 + 任务记录) — `Runtime/DialogueContext.cs`
 - 对话播放器(交互节点等回调,自动节点立即执行,带死循环保护) — `Runtime/DialoguePlayer.cs`
-- GraphView 编辑器(创建/连线/删除/保存/开始节点管理/左侧详情面板) — `Editor/*.cs`
+- GraphView 编辑器(创建/连线/删除/保存/开始节点管理/左侧详情面板/自适应正文/节点样式) — `Editor/*.cs`
 - 示例 UI 与示例资产生成器 — `Examples/`
-- 使用文档 — `README.md`(仓库根目录)
+- 使用文档 — `README.md` + `Assets/DialogueSystem/使用手册.md`
 
 ## 待办与下一步
 
 - 已在真实 Unity 2022 编辑器中验证:编译通过、节点详情可编辑、Start/End 流程可用
-- 可选增强:对话文本本地化、节点复制粘贴、小地图、撤消体验优化、示例场景
+- 可选增强:对话文本本地化、节点复制粘贴、小地图、示例场景
 
 ## 已知坑点与注意事项
 
 - `[SerializeReference]` 数据在重命名类/命名空间后会丢失引用,需 `MovedFromAttribute` 过渡
 - 状态分支节点中"空条件分支"永不命中,兜底必须连"默认"端口
-- 选择节点运行时若无选项满足条件,对话直接结束
+- 选择节点只保存选项与条件;运行时若无选项满足条件,对话直接结束
+- `DialoguePlayer` 的对话/选择/等待回调采用一次性会话校验,旧 UI 回调或重复点击不会推进新对话
+- GraphView 输入端口为单连接,避免一个节点存在多个前置入口
 - 左侧面板(节点详情)用 `IMGUIContainer` + `EditorGUILayout.PropertyField` 绘制:UIElements 的 `PropertyField` 对 SerializeReference 数组元素渲染不可靠(实测出现空白/只显示折叠框),IMGUI 路径稳定且 2022 中 SerializeReference 列表的类型选择器可用
 - 枚举节点字段不能用 `SerializedProperty.NextVisible`——对 SerializeReference 数组元素它枚举不出任何可见子属性;正确做法是反射节点对象的字段(跳过 `[HideInInspector]`/未序列化字段),再 `FindPropertyRelative(字段名)` 取属性绘制
 - 详情面板用的 `SerializedObject` 存为窗口成员变量,切换节点时 Dispose 重建;每次重绘时 `Update()`/`ApplyModifiedProperties()`,修改后标脏资产并刷新图节点

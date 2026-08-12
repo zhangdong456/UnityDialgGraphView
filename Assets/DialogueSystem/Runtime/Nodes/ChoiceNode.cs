@@ -21,24 +21,21 @@ namespace DialogueSystem
         public bool IsVisible(DialogueContext context)
         {
             if (conditions == null) return true;
+            if (context == null && conditions.Any(c => c != null)) return false;
             return conditions.All(c => c == null || c.Evaluate(context));
         }
     }
 
     /// <summary>
-    /// 选择节点:NPC 说一段话并提供多个选项,每个选项一个输出端口。
+    /// 选择节点:只负责提供多个选项,每个选项一个输出端口。
+    /// 如果需要在选项前显示 NPC 的说话者和内容,请在它前面连接一个 DialogueNode。
     /// 运行时按条件过滤后交给 UI,玩家选择后沿对应端口继续。
     /// </summary>
     [Serializable]
     public class ChoiceNode : DialogueNodeData
     {
-        public string speakerName;
-
-        [TextArea(2, 6)]
-        public string dialogueText;
-
         public List<ChoiceOption> choices = new List<ChoiceOption>();
 
-        public override string GetSummary() => $"共 {choices.Count} 个选项";
+        public override string GetSummary() => $"共 {(choices == null ? 0 : choices.Count)} 个选项";
     }
 }

@@ -12,7 +12,7 @@ namespace DialogueSystem
     /// 典型用法:
     ///   var player = new DialoguePlayer();
     ///   player.OnDialogue += (speaker, text, cont) => ui.ShowLine(speaker, text, cont);
-    ///   player.OnChoice   += (speaker, text, choices, cb) => ui.ShowChoices(speaker, text, choices, cb);
+    ///   player.OnChoice   += (choices, cb) => ui.ShowChoices(choices, cb);
     ///   player.OnWait     += (seconds, cont) => StartCoroutine(HideAndWait(seconds, cont));
     ///   player.OnEnd      += () => ui.Hide();
     ///   player.Play(dialogueAsset, context);
@@ -36,8 +36,8 @@ namespace DialogueSystem
         /// <summary>普通对话:(说话者, 内容, 继续回调)。UI 点击"继续"时调用回调。</summary>
         public event Action<string, string, Action> OnDialogue;
 
-        /// <summary>选择:(说话者, 内容, 可见选项列表, 选择回调)。回调参数为 ChoiceInfo.choiceIndex。</summary>
-        public event Action<string, string, List<ChoiceInfo>, Action<int>> OnChoice;
+        /// <summary>选择:(可见选项列表, 选择回调)。回调参数为 ChoiceInfo.choiceIndex。</summary>
+        public event Action<List<ChoiceInfo>, Action<int>> OnChoice;
 
         /// <summary>等待:(秒数, 继续回调)。等待期间应隐藏对话界面。</summary>
         public event Action<float, Action> OnWait;
@@ -49,11 +49,22 @@ namespace DialogueSystem
         public event Action OnEnd;
 
         DialogueNodeData current;
+        int playSession;
 
         /// <summary>开始播放一张对话图。context 为空时自动新建。</summary>
         public void Play(DialogueGraphAsset asset, DialogueContext context = null)
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
+
+            // 让上一次播放产生的 UI 回调全部失效,避免旧回调推进新对话。
+            // 替换播放时不触发旧对话的 OnEnd,否则 OnEnd 中再次 Play 会造成重入。
+            if (IsPlaying)
+            {
+                current = null;
+                IsPlaying = false;
+                playSession++;
+            }
+            playSession++;
             Context = context ?? new DialogueContext();
             CurrentAsset = asset;
             IsPlaying = true;
@@ -64,6 +75,7 @@ namespace DialogueSystem
         /// <summary>强制结束对话。</summary>
         public void Stop()
         {
+            playSession++;
             current = null;
             if (IsPlaying)
             {
@@ -104,19 +116,33 @@ namespace DialogueSystem
                         break;
 
                     case DialogueNode d:
+                    {
                         if (OnDialogue != null)
                         {
-                            OnDialogue.Invoke(d.speakerName, d.dialogueText, () => Continue(0));
+                            var requestedNode = current;
+                            var requestedAsset = CurrentAsset;
+                            var session = playSession;
+                            var continued = false;
+                            OnDialogue.Invoke(d.speakerName, d.dialogueText, () =>
+                            {
+                                if (continued || session != playSession || !IsPlaying
+                                    || current != requestedNode || CurrentAsset != requestedAsset)
+                                    return;
+                                continued = true;
+                                Continue(0);
+                            });
                             return;
                         }
                         current = CurrentAsset.GetNextNode(d.guid, 0);
                         break;
+                    }
 
                     case ChoiceNode c:
                     {
                         var visible = new List<ChoiceInfo>();
-                        for (int i = 0; i < c.choices.Count; i++)
-                            if (c.choices[i] != null && c.choices[i].IsVisible(Context))
+                        var choices = c.choices;
+                        for (int i = 0; choices != null && i < choices.Count; i++)
+                            if (choices[i] != null && choices[i].IsVisible(Context))
                                 visible.Add(new ChoiceInfo { choiceIndex = i, text = c.choices[i].choiceText });
 
                         if (visible.Count == 0 || OnChoice == null)
@@ -125,18 +151,45 @@ namespace DialogueSystem
                             current = null;
                             break;
                         }
-                        OnChoice.Invoke(c.speakerName, c.dialogueText, visible, index => Continue(index));
+                        var requestedNode = current;
+                        var requestedAsset = CurrentAsset;
+                        var session = playSession;
+                        var continued = false;
+                        OnChoice.Invoke(visible, index =>
+                        {
+                            if (continued || session != playSession || !IsPlaying
+                                || current != requestedNode || CurrentAsset != requestedAsset)
+                                return;
+                            if (index < 0 || choices == null || index >= choices.Count
+                                || choices[index] == null || !choices[index].IsVisible(Context))
+                                return;
+                            continued = true;
+                            Continue(index);
+                        });
                         return;
                     }
 
                     case WaitNode w:
+                    {
                         if (OnWait != null)
                         {
-                            OnWait.Invoke(w.waitSeconds, () => Continue(0));
+                            var requestedNode = current;
+                            var requestedAsset = CurrentAsset;
+                            var session = playSession;
+                            var continued = false;
+                            OnWait.Invoke(w.waitSeconds, () =>
+                            {
+                                if (continued || session != playSession || !IsPlaying
+                                    || current != requestedNode || CurrentAsset != requestedAsset)
+                                    return;
+                                continued = true;
+                                Continue(0);
+                            });
                             return;
                         }
                         current = CurrentAsset.GetNextNode(w.guid, 0);
                         break;
+                    }
 
                     case EventNode e:
                         if (e.events != null)
@@ -150,15 +203,24 @@ namespace DialogueSystem
                         break;
 
                     case JumpNode j:
+                    {
                         if (j.targetDialogue == null)
                         {
                             current = null;
                             break;
                         }
-                        OnJump?.Invoke(j.targetDialogue);
-                        CurrentAsset = j.targetDialogue;
+                        var jumpTarget = j.targetDialogue;
+                        var requestedNode = current;
+                        var requestedAsset = CurrentAsset;
+                        var session = playSession;
+                        OnJump?.Invoke(jumpTarget);
+                        if (!IsPlaying || session != playSession || current != requestedNode
+                            || CurrentAsset != requestedAsset)
+                            return;
+                        CurrentAsset = jumpTarget;
                         current = CurrentAsset.GetEntryNode();
                         break;
+                    }
 
                     default:
                         // 未识别的自定义节点:默认沿 0 号输出端口继续。

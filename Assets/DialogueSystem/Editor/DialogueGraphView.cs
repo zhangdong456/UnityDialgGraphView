@@ -15,11 +15,13 @@ namespace DialogueSystem.Editor
     {
         readonly DialogueGraphWindow window;
         readonly DialogueNodeSearchWindow searchWindow;
+        bool isPopulating;
 
         public DialogueGraphView(DialogueGraphWindow window)
         {
             this.window = window;
             style.flexGrow = 1;
+            style.backgroundColor = new Color(0.075f, 0.085f, 0.11f);
 
             SetupZoom(ContentZoomer.DefaultMinScale, ContentZoomer.DefaultMaxScale);
             this.AddManipulator(new ContentDragger());
@@ -39,7 +41,8 @@ namespace DialogueSystem.Editor
             {
                 // 开始节点是固定入口,不允许删除
                 change.elementsToRemove?.RemoveAll(e => e is DialogueGraphNode n && n.Data is StartNode);
-                window.NotifyGraphChanged();
+                if (!isPopulating)
+                    window.NotifyGraphChanged();
                 return change;
             };
         }
@@ -48,6 +51,7 @@ namespace DialogueSystem.Editor
         {
             return ports.ToList()
                 .Where(p => p.direction != startPort.direction && p.node != startPort.node)
+                .Where(p => p.capacity != Port.Capacity.Single || p.connections.Count == 0)
                 .ToList();
         }
 
@@ -58,7 +62,16 @@ namespace DialogueSystem.Editor
             if (nodeType == typeof(StartNode) && FindStartNodeView() != null)
                 return null;
 
-            var data = (DialogueNodeData)Activator.CreateInstance(nodeType);
+            DialogueNodeData data;
+            try
+            {
+                data = (DialogueNodeData)Activator.CreateInstance(nodeType);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[DialogueSystem] 无法创建节点类型 {nodeType.Name},请确保它有无参构造函数。\n{e}");
+                return null;
+            }
             data.guid = GUID.Generate().ToString();
             data.position = position;
             var view = CreateNodeView(data);
@@ -74,37 +87,67 @@ namespace DialogueSystem.Editor
             return view;
         }
 
+        public void ClearView()
+        {
+            isPopulating = true;
+            try
+            {
+                DeleteElements(graphElements.ToList());
+            }
+            finally
+            {
+                isPopulating = false;
+            }
+        }
+
         /// <summary>把资产里的图加载到视图。</summary>
         public void PopulateFromAsset(DialogueGraphAsset asset)
         {
-            DeleteElements(graphElements.ToList());
+            if (asset == null) return;
 
-            foreach (var data in asset.nodes)
-                if (data != null)
-                    CreateNodeView(data);
-
-            EnsureStartNode(asset);
-
-            foreach (var link in asset.links)
+            isPopulating = true;
+            try
             {
-                var from = FindNodeView(link.fromGuid);
-                var to = FindNodeView(link.toGuid);
-                if (from == null || to == null || to.InputPort == null) continue;
-                var outPort = from.GetOutputPort(link.fromPort);
-                if (outPort == null) continue;
-                AddElement(outPort.ConnectTo(to.InputPort));
-            }
+                DeleteElements(graphElements.ToList());
 
-            RefreshAllNodes();
+                if (asset.nodes != null)
+                    foreach (var data in asset.nodes)
+                        if (data != null)
+                            CreateNodeView(data);
+
+                var addedStart = EnsureStartNode(asset);
+
+                if (asset.links != null)
+                    foreach (var link in asset.links)
+                    {
+                        if (link == null) continue;
+                        var from = FindNodeView(link.fromGuid);
+                        var to = FindNodeView(link.toGuid);
+                        if (from == null || to == null || to.InputPort == null) continue;
+                        var outPort = from.GetOutputPort(link.fromPort);
+                        if (outPort == null || to.InputPort.connections.Count > 0) continue;
+                        AddElement(outPort.ConnectTo(to.InputPort));
+                    }
+
+                RefreshAllNodes();
+
+                // 旧资产自动补 Start 节点,需要用户明确保存才写回资产。
+                if (addedStart)
+                    window.NotifyGraphChanged();
+            }
+            finally
+            {
+                isPopulating = false;
+            }
         }
 
         /// <summary>
         /// 保证图中存在唯一的开始节点。
         /// 旧资产没有开始节点时自动补一个,并把它连到原来的入口节点。
         /// </summary>
-        void EnsureStartNode(DialogueGraphAsset asset)
+        bool EnsureStartNode(DialogueGraphAsset asset)
         {
-            if (FindStartNodeView() != null) return;
+            if (FindStartNodeView() != null) return false;
 
             var legacyEntry = asset.FindNode(asset.entryNodeGuid);
             var start = new StartNode
@@ -122,12 +165,15 @@ namespace DialogueSystem.Editor
                 if (to?.InputPort != null)
                     AddElement(startView.GetOutputPort(0).ConnectTo(to.InputPort));
             }
-            window.NotifyGraphChanged();
+            return true;
         }
 
         /// <summary>把当前视图写回资产。</summary>
         public void SaveToAsset(DialogueGraphAsset asset)
         {
+            if (asset == null) return;
+            if (asset.nodes == null) asset.nodes = new List<DialogueNodeData>();
+            if (asset.links == null) asset.links = new List<NodeLink>();
             asset.nodes.Clear();
             foreach (var nodeView in nodes.ToList().Cast<DialogueGraphNode>())
             {
@@ -138,12 +184,15 @@ namespace DialogueSystem.Editor
             asset.links.Clear();
             foreach (var edge in edges.ToList())
             {
-                var from = (DialogueGraphNode)edge.output.node;
-                var to = (DialogueGraphNode)edge.input.node;
+                var from = edge.output?.node as DialogueGraphNode;
+                var to = edge.input?.node as DialogueGraphNode;
+                if (from == null || to == null) continue;
+                var fromPort = from.GetOutputPortIndex(edge.output);
+                if (fromPort < 0) continue;
                 asset.links.Add(new NodeLink
                 {
                     fromGuid = from.Data.guid,
-                    fromPort = from.GetOutputPortIndex(edge.output),
+                    fromPort = fromPort,
                     toGuid = to.Data.guid
                 });
             }

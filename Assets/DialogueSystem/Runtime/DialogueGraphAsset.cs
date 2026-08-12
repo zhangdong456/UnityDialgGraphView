@@ -33,6 +33,7 @@ namespace DialogueSystem
 
         public DialogueNodeData FindNode(string guid)
         {
+            if (nodes == null) return null;
             for (int i = 0; i < nodes.Count; i++)
                 if (nodes[i] != null && nodes[i].guid == guid)
                     return nodes[i];
@@ -42,8 +43,9 @@ namespace DialogueSystem
         /// <summary>沿某个输出端口找到下一个节点,没有连线时返回 null。</summary>
         public DialogueNodeData GetNextNode(string fromGuid, int fromPort)
         {
+            if (links == null) return null;
             for (int i = 0; i < links.Count; i++)
-                if (links[i].fromGuid == fromGuid && links[i].fromPort == fromPort)
+                if (links[i] != null && links[i].fromGuid == fromGuid && links[i].fromPort == fromPort)
                     return FindNode(links[i].toGuid);
             return null;
         }
@@ -51,6 +53,7 @@ namespace DialogueSystem
         /// <summary>图中的 Start 节点,没有时返回 null。</summary>
         public StartNode GetStartNode()
         {
+            if (nodes == null) return null;
             for (int i = 0; i < nodes.Count; i++)
                 if (nodes[i] is StartNode start)
                     return start;
@@ -67,7 +70,7 @@ namespace DialogueSystem
             if (start != null) return start;
             var entry = FindNode(entryNodeGuid);
             if (entry != null) return entry;
-            return nodes.Count > 0 ? nodes[0] : null;
+            return nodes != null && nodes.Count > 0 ? nodes[0] : null;
         }
     }
 }

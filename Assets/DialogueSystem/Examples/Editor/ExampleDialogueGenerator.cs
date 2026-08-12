@@ -40,10 +40,14 @@ namespace DialogueSystem.Examples
                 dialogueText = "欢迎来到村庄!有什么可以帮你的吗?"
             });
 
-            var choice = Node(new Vector2(300, 0), new ChoiceNode
+            var choicePrompt = Node(new Vector2(300, 0), new DialogueNode
             {
                 speakerName = "村长",
-                dialogueText = "你想做点什么?",
+                dialogueText = "你想做点什么?"
+            });
+
+            var choice = Node(new Vector2(600, 0), new ChoiceNode
+            {
                 choices =
                 {
                     new ChoiceOption { choiceText = "接取任务" },
@@ -109,11 +113,12 @@ namespace DialogueSystem.Examples
             var end = Node(new Vector2(900, 200), new EndNode());
 
             asset.nodes.AddRange(new DialogueNodeData[]
-                { start, hello, choice, addQuest, wait, branch, rich, questDone, fallback, jumpToShop, bye, end });
+                { start, hello, choicePrompt, choice, addQuest, wait, branch, rich, questDone, fallback, jumpToShop, bye, end });
             asset.entryNodeGuid = start.guid;
 
             Link(asset, start, 0, hello);
-            Link(asset, hello, 0, choice);
+            Link(asset, hello, 0, choicePrompt);
+            Link(asset, choicePrompt, 0, choice);
             Link(asset, choice, 0, addQuest);       // 选项0:接取任务
             Link(asset, choice, 1, jumpToShop);     // 选项1:去商店(需金币≥50)
             Link(asset, choice, 2, bye);            // 选项2:离开

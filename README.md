@@ -7,12 +7,13 @@
 - **开始节点**:每张图唯一,由编辑器自动创建且不可删除,对话必须从这里开始
 - **结束节点**:显式标记对话终点,走到这里触发 OnEnd
 - **对话节点**:说话者、对话内容、可选语音
-- **选择节点**:多个选项,每个选项可挂任意条件(如"金币 ≥ 50 才显示")
+- **选择节点**:只管理多个选项,每个选项可挂任意条件(如"金币 ≥ 50 才显示");说话者和正文请放在前置对话节点
 - **状态分支节点**:按条件切出 N 条分支 + 默认出口(布尔判断建 1 条分支,多值判断建多条)
 - **等待节点**:配置等待秒数,等待期间隐藏对话界面,用于播放人物动画
 - **事件节点**:可自由扩展的事件列表,内置模板:接取任务 / 完成任务 / 设置整数
 - **跳转节点**:跳转到另一个对话资产继续执行
-- 左侧详情面板:点击节点即可查看和编辑它的所有属性
+- 左侧详情面板:点击节点即可查看和编辑它的属性;对话正文会根据内容自动增高
+- 编辑器提供未保存状态提示、`Ctrl/Cmd + S` 保存和“聚焦全部”视图按钮
 - 条件、事件、节点类型全部通过继承基类扩展,**子类自动出现在编辑器菜单里,无需注册**
 
 ## 安装
@@ -23,7 +24,7 @@
 
 1. **创建对话资产**:Project 窗口右键 → `Create → Dialogue System → Dialogue Graph`
 2. **打开图编辑器**:双击资产(或菜单 `Window → Dialogue System → Dialogue Graph`)
-3. **搭建对话**:图加载后自动生成唯一的"开始"节点(不可删除),从它的输出端口连到第一个节点;右键空白处创建其他节点,点击节点在左侧栏编辑详情;改完点工具栏"保存"
+3. **搭建对话**:图加载后自动生成唯一的"开始"节点(不可删除),从它的输出端口连到第一个节点;右键空白处创建其他节点,点击节点在左侧栏编辑详情;改完点工具栏"保存"。选择节点前如需显示一句提示,先连接一个对话节点
 4. **运行**:把 `ExampleDialogueUI` 挂到场景任意 GameObject 上,拖入对话资产,运行后按空格播放
 
 也可以直接用菜单 `Tools → Dialogue System → 生成示例对话资产` 一键生成两张演示资产(覆盖所有节点类型),边看图边学习。
@@ -35,7 +36,7 @@
 | 开始节点 | 对话入口,全图唯一、不可删除 | 下一个 |
 | 结束节点 | 对话终点,走到即结束 | 无 |
 | 对话节点 | 一个说话者说一段话 | 下一个 |
-| 选择节点 | NPC 提供多个选项,选项按条件过滤 | 每个选项一个端口 |
+| 选择节点 | 提供多个选项,选项按条件过滤;不负责说话者和正文 | 每个选项一个端口 |
 | 状态分支节点 | 自上而下判断,命中第一条满足条件的分支 | 每条分支一个端口 + 默认 |
 | 等待节点 | 暂停 N 秒(期间隐藏 UI) | 下一个 |
 | 事件节点 | 按顺序执行一批事件 | 下一个 |
@@ -55,7 +56,7 @@ public class GoldCondition : DialogueCondition
 }
 ```
 
-继承 `DialogueCondition` 后,在选择节点的选项条件、状态分支节点的分支条件里点 "+" 就能选到它。
+继承 `DialogueCondition` 后,编译成功时会自动出现在选择节点某个选项的 `Conditions` 列表、状态分支节点某个分支的 `Conditions` 列表里。一个选择/分支内的多个条件是 AND 关系。
 
 ### 自定义事件(模板)
 
@@ -69,7 +70,7 @@ public class AddQuestEvent : DialogueEvent   // 内置模板,可直接参考
 }
 ```
 
-继承 `DialogueEvent` 后,在事件节点的事件列表里点 "+" 就能选到它。内置 `AddQuestEvent` / `CompleteQuestEvent` / `SetIntEvent` 三个模板,可直接照抄改写,在 `Execute` 里对接你自己的任务/背包系统。
+继承 `DialogueEvent` 后,在事件节点的 `Events` 列表里点 "+" 就能选到它。内置 `AddQuestEvent` / `CompleteQuestEvent` / `SetIntEvent` 三个模板,可直接照抄改写,在 `Execute` 里对接你自己的任务/背包系统。完整的逐步配置说明见 [`Assets/DialogueSystem/使用手册.md`](Assets/DialogueSystem/使用手册.md)。
 
 ### 自定义节点
 
@@ -84,7 +85,7 @@ context.Quests.AddQuest("dragon_quest");      // 任务状态
 
 var player = new DialoguePlayer();
 player.OnDialogue += (speaker, text, cont) => { /* 显示对话,点继续时调 cont() */ };
-player.OnChoice   += (speaker, text, choices, cb) => { /* 显示选项,选完调 cb(choiceIndex) */ };
+player.OnChoice   += (choices, cb) => { /* 显示选项,选完调 cb(choiceIndex) */ };
 player.OnWait     += (seconds, cont) => { /* 隐藏 UI,seconds 秒后调 cont() */ };
 player.OnJump     += asset => { /* 即将跳转到另一张图(随后自动继续) */ };
 player.OnEnd      += () => { /* 对话结束 */ };
