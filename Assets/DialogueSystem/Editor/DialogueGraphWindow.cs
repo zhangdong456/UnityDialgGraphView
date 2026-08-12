@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.Callbacks;
 using UnityEditor.UIElements;
@@ -269,12 +271,12 @@ namespace DialogueSystem.Editor
                 return;
             }
 
-            // 用 IMGUIContainer + EditorGUILayout.PropertyField 逐字段绘制。
-            // UIElements 的 PropertyField 在 SerializeReference 数组元素上渲染不可靠
-            // (实测会出现空白或只显示折叠框);IMGUI 是 Inspector 的成熟路径,
-            // Unity 2022 中 SerializeReference 列表的类型选择器在 IMGUI 下同样可用。
+            // 用 IMGUIContainer + EditorGUILayout.PropertyField 逐字段绘制普通字段。
+            // Unity 2022 对 SerializeReference 数组元素的默认 PropertyField 存在兼容问题,
+            // 条件/事件列表已经在 DrawNodeInspector 中走自定义绘制路径。
             string guid = inspectedGuid;
-            inspectorPanel.Add(new IMGUIContainer(() => DrawNodeInspector(guid)));
+            var inspectorGui = new IMGUIContainer(() => DrawNodeInspector(guid));
+            inspectorPanel.Add(inspectorGui);
         }
 
         /// <summary>IMGUI 绘制选中节点的所有可见字段(说话者、内容、选项/分支/事件列表等)。</summary>
@@ -295,15 +297,42 @@ namespace DialogueSystem.Editor
                 var data = graphView.FindNodeView(guid)?.Data;
                 if (data == null) return;
 
+                // 这些列表不能直接交给 PropertyField:
+                // Unity 2022 对 SerializeReference 列表的默认绘制会出现“E”、
+                // Element 0/1 不可点击、类型选择器无法弹出等问题。
+                // 先使用自己的列表绘制器,再绘制普通字段。
+                var customFields = new HashSet<string>();
+                var hasCustomFields = false;
+                if (data is ChoiceNode)
+                {
+                    DrawChoiceOptions(nodeProp.FindPropertyRelative("choices"));
+                    customFields.Add("choices");
+                    hasCustomFields = true;
+                }
+                else if (data is EventNode)
+                {
+                    DrawManagedReferenceList(nodeProp.FindPropertyRelative("events"),
+                        typeof(DialogueEvent), "事件");
+                    customFields.Add("events");
+                    hasCustomFields = true;
+                }
+                else if (data is StateBranchNode)
+                {
+                    DrawBranchCases(nodeProp.FindPropertyRelative("cases"));
+                    customFields.Add("cases");
+                    hasCustomFields = true;
+                }
+
                 // 注意:不要用 SerializedProperty.NextVisible 枚举 SerializeReference 数组元素
                 // 的子字段——实测它一个可见子属性都枚举不出来(元素属性的怪癖)。
                 // 改为直接反射节点对象的字段,再按字段名取序列化属性绘制。
-                int drawn = 0;
+                int drawn = hasCustomFields ? 1 : 0;
                 for (var t = data.GetType(); t != null && t != typeof(object); t = t.BaseType)
                 {
                     foreach (var field in t.GetFields(BindingFlags.Instance | BindingFlags.Public
                         | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                     {
+                        if (customFields.Contains(field.Name)) continue;
                         if (field.IsNotSerialized) continue;
                         if (field.GetCustomAttribute<HideInInspector>() != null) continue;
                         if (!field.IsPublic && field.GetCustomAttribute<SerializeField>() == null) continue;
@@ -335,6 +364,256 @@ namespace DialogueSystem.Editor
             }
         }
 
+        void DrawChoiceOptions(SerializedProperty list)
+        {
+            if (list == null || !list.isArray)
+            {
+                EditorGUILayout.HelpBox("Choices 数据不可用。", MessageType.Error);
+                return;
+            }
+
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField($"Choices ({list.arraySize})", EditorStyles.boldLabel);
+            if (GUILayout.Button("+", GUILayout.Width(24)))
+            {
+                Undo.RecordObject(asset, "添加选择");
+                list.arraySize++;
+                var item = list.GetArrayElementAtIndex(list.arraySize - 1);
+                item.FindPropertyRelative("choiceText").stringValue = string.Empty;
+                var conditions = item.FindPropertyRelative("conditions");
+                if (conditions != null) conditions.arraySize = 0;
+                GUI.changed = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            int removeIndex = -1;
+            for (int i = 0; i < list.arraySize; i++)
+            {
+                var item = list.GetArrayElementAtIndex(i);
+                EditorGUILayout.BeginVertical("helpBox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField($"选择 {i}", EditorStyles.boldLabel);
+                if (GUILayout.Button("删除", GUILayout.Width(42)))
+                    removeIndex = i;
+                EditorGUILayout.EndHorizontal();
+
+                if (removeIndex == i)
+                {
+                    EditorGUILayout.EndVertical();
+                    break;
+                }
+
+                EditorGUILayout.PropertyField(item.FindPropertyRelative("choiceText"),
+                    new GUIContent("Choice Text"));
+                DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
+                    typeof(DialogueCondition), "条件");
+                EditorGUILayout.EndVertical();
+            }
+
+            if (removeIndex >= 0)
+            {
+                Undo.RecordObject(asset, "删除选择");
+                list.DeleteArrayElementAtIndex(removeIndex);
+                GUI.changed = true;
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        void DrawBranchCases(SerializedProperty list)
+        {
+            if (list == null || !list.isArray)
+            {
+                EditorGUILayout.HelpBox("Cases 数据不可用。", MessageType.Error);
+                return;
+            }
+
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField($"Cases ({list.arraySize})", EditorStyles.boldLabel);
+            if (GUILayout.Button("+", GUILayout.Width(24)))
+            {
+                Undo.RecordObject(asset, "添加分支");
+                list.arraySize++;
+                var item = list.GetArrayElementAtIndex(list.arraySize - 1);
+                item.FindPropertyRelative("label").stringValue = string.Empty;
+                var conditions = item.FindPropertyRelative("conditions");
+                if (conditions != null) conditions.arraySize = 0;
+                GUI.changed = true;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            int removeIndex = -1;
+            for (int i = 0; i < list.arraySize; i++)
+            {
+                var item = list.GetArrayElementAtIndex(i);
+                EditorGUILayout.BeginVertical("helpBox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField($"分支 {i}", EditorStyles.boldLabel);
+                if (GUILayout.Button("删除", GUILayout.Width(42)))
+                    removeIndex = i;
+                EditorGUILayout.EndHorizontal();
+
+                if (removeIndex == i)
+                {
+                    EditorGUILayout.EndVertical();
+                    break;
+                }
+
+                EditorGUILayout.PropertyField(item.FindPropertyRelative("label"),
+                    new GUIContent("Label"));
+                DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
+                    typeof(DialogueCondition), "条件");
+                EditorGUILayout.EndVertical();
+            }
+
+            if (removeIndex >= 0)
+            {
+                Undo.RecordObject(asset, "删除分支");
+                list.DeleteArrayElementAtIndex(removeIndex);
+                GUI.changed = true;
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        void DrawManagedReferenceList(SerializedProperty list, Type baseType, string label)
+        {
+            if (list == null || !list.isArray)
+            {
+                EditorGUILayout.HelpBox($"{label} 数据不可用。", MessageType.Error);
+                return;
+            }
+
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField($"{label} ({list.arraySize})", EditorStyles.boldLabel);
+            if (GUILayout.Button($"添加{label}", GUILayout.Width(72)))
+                ShowManagedReferenceMenu(list, baseType, -1);
+            EditorGUILayout.EndHorizontal();
+
+            int removeIndex = -1;
+            for (int i = 0; i < list.arraySize; i++)
+            {
+                var element = list.GetArrayElementAtIndex(i);
+                var managedValue = element.managedReferenceValue;
+                var typeName = managedValue == null
+                    ? "未选择类型"
+                    : GetManagedTypeDisplayName(managedValue.GetType());
+
+                EditorGUILayout.BeginVertical("helpBox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField($"{label} {i}: {typeName}", EditorStyles.boldLabel);
+                if (GUILayout.Button("删除", GUILayout.Width(42)))
+                    removeIndex = i;
+                EditorGUILayout.EndHorizontal();
+
+                if (removeIndex == i)
+                {
+                    EditorGUILayout.EndVertical();
+                    break;
+                }
+
+                if (managedValue == null)
+                {
+                    EditorGUILayout.HelpBox("还没有选择类型,请点击下面的按钮。", MessageType.Info);
+                    if (GUILayout.Button($"选择{label}类型"))
+                        ShowManagedReferenceMenu(list, baseType, i);
+                }
+                else
+                {
+                    DrawManagedReferenceFields(element, managedValue.GetType());
+                }
+                EditorGUILayout.EndVertical();
+            }
+
+            if (removeIndex >= 0)
+            {
+                Undo.RecordObject(asset, $"删除{label}");
+                list.DeleteArrayElementAtIndex(removeIndex);
+                GUI.changed = true;
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        void DrawManagedReferenceFields(SerializedProperty element, Type managedType)
+        {
+            for (var type = managedType; type != null && type != typeof(object); type = type.BaseType)
+            {
+                foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public
+                    | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                {
+                    if (!IsInspectableField(field)) continue;
+                    var property = element.FindPropertyRelative(field.Name);
+                    if (property == null) continue;
+                    EditorGUILayout.PropertyField(property, true);
+                }
+            }
+        }
+
+        void ShowManagedReferenceMenu(SerializedProperty list, Type baseType, int targetIndex)
+        {
+            var menu = new GenericMenu();
+            var types = GetManagedReferenceTypes(baseType).ToList();
+            if (types.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("没有可用类型"));
+                menu.ShowAsContext();
+                return;
+            }
+
+            foreach (var type in types)
+            {
+                var capturedType = type;
+                menu.AddItem(new GUIContent(GetManagedTypeDisplayName(capturedType)), false, () =>
+                {
+                    try
+                    {
+                        Undo.RecordObject(asset, targetIndex < 0 ? "添加多态元素" : "选择多态类型");
+                        var serializedObject = list.serializedObject;
+                        serializedObject.Update();
+                        var index = targetIndex < 0 ? list.arraySize : targetIndex;
+                        if (targetIndex < 0) list.arraySize++;
+                        var element = list.GetArrayElementAtIndex(index);
+                        element.managedReferenceValue = Activator.CreateInstance(capturedType);
+                        serializedObject.ApplyModifiedProperties();
+                        EditorUtility.SetDirty(asset);
+                        NotifyGraphChanged();
+                        graphView?.RefreshAllNodes();
+                        Repaint();
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogException(e);
+                    }
+                });
+            }
+            menu.ShowAsContext();
+        }
+
+        static IEnumerable<Type> GetManagedReferenceTypes(Type baseType)
+        {
+            IEnumerable<Type> types;
+            if (baseType == typeof(DialogueCondition))
+                types = TypeCache.GetTypesDerivedFrom<DialogueCondition>();
+            else if (baseType == typeof(DialogueEvent))
+                types = TypeCache.GetTypesDerivedFrom<DialogueEvent>();
+            else
+                types = Enumerable.Empty<Type>();
+
+            return types.Where(t => !t.IsAbstract && !t.ContainsGenericParameters)
+                .OrderBy(t => t.FullName);
+        }
+
+        static string GetManagedTypeDisplayName(Type type) =>
+            ObjectNames.NicifyVariableName(type.Name);
+
+        static bool IsInspectableField(FieldInfo field)
+        {
+            if (field.IsNotSerialized) return false;
+            if (field.GetCustomAttribute<HideInInspector>() != null) return false;
+            return field.IsPublic || field.GetCustomAttribute<SerializeField>() != null;
+        }
+
         static Label MakeHint(string text)
         {
             var label = new Label(text);
@@ -349,7 +628,7 @@ namespace DialogueSystem.Editor
         /// TextAreaAttribute 的 maxLines 会把长文本截在固定高度,不适合编辑长对话;
         /// 这里保留原来的最小两行高度,并按换行和自动换行后的真实高度扩展。
         /// </summary>
-        static void DrawAdaptiveTextArea(SerializedProperty property)
+        void DrawAdaptiveTextArea(SerializedProperty property)
         {
             var style = new GUIStyle(EditorStyles.textArea)
             {
@@ -358,20 +637,33 @@ namespace DialogueSystem.Editor
                 padding = new RectOffset(5, 5, 4, 4)
             };
 
-            var label = new GUIContent(property.displayName);
-            var previewWidth = Mathf.Max(100f, EditorGUIUtility.currentViewWidth
-                - EditorGUIUtility.labelWidth - 30f);
             var text = property.stringValue ?? string.Empty;
-            var measuredHeight = style.CalcHeight(new GUIContent(text), previewWidth);
+            var label = new GUIContent(property.displayName);
+            // currentViewWidth 在嵌套 IMGUIContainer 中有时拿到的是整个窗口宽度,
+            // 会导致 CalcHeight 低估。优先使用左侧详情面板的实际内容宽度。
+            var panelWidth = inspectorPanel == null ? 0f : inspectorPanel.resolvedStyle.width;
+            if (panelWidth <= 0f && inspectorPanel != null)
+                panelWidth = inspectorPanel.contentRect.width;
+            if (panelWidth <= 0f) panelWidth = EditorGUIUtility.currentViewWidth;
+            var fieldWidth = Mathf.Max(80f, panelWidth - EditorGUIUtility.labelWidth - 18f);
+            var measuredHeight = style.CalcHeight(
+                new GUIContent(string.IsNullOrEmpty(text) ? " " : text), fieldWidth);
             var minimumHeight = EditorGUIUtility.singleLineHeight * 2f + 10f;
             var height = Mathf.Max(minimumHeight, measuredHeight + 2f);
-            var rect = EditorGUILayout.GetControlRect(true, height);
-            var textRect = EditorGUI.PrefixLabel(rect, label);
+            var rect = EditorGUILayout.GetControlRect(false, height);
+            var labelRect = new Rect(rect.x, rect.y, EditorGUIUtility.labelWidth,
+                EditorGUIUtility.singleLineHeight);
+            var textRect = new Rect(rect.x + EditorGUIUtility.labelWidth, rect.y,
+                Mathf.Max(80f, rect.width - EditorGUIUtility.labelWidth), rect.height);
+            EditorGUI.LabelField(labelRect, label);
 
             EditorGUI.BeginChangeCheck();
             var newText = EditorGUI.TextArea(textRect, text, style);
             if (EditorGUI.EndChangeCheck())
+            {
                 property.stringValue = newText;
+                GUI.changed = true;
+            }
         }
 
         static SerializedProperty FindNodeProperty(SerializedObject so, string guid)

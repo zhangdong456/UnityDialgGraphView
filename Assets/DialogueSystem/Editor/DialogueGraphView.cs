@@ -23,7 +23,8 @@ namespace DialogueSystem.Editor
             style.flexGrow = 1;
             style.backgroundColor = new Color(0.075f, 0.085f, 0.11f);
 
-            SetupZoom(ContentZoomer.DefaultMinScale, ContentZoomer.DefaultMaxScale);
+            // 允许更远的总览,同时允许更近的细看,方便阅读节点正文与端口名称。
+            SetupZoom(0.08f, 3.0f);
             this.AddManipulator(new ContentDragger());
             this.AddManipulator(new SelectionDragger());
             this.AddManipulator(new RectangleSelector());
@@ -51,7 +52,7 @@ namespace DialogueSystem.Editor
         {
             return ports.ToList()
                 .Where(p => p.direction != startPort.direction && p.node != startPort.node)
-                .Where(p => p.capacity != Port.Capacity.Single || p.connections.Count == 0)
+                .Where(p => p.capacity != Port.Capacity.Single || p.connections.Count() == 0)
                 .ToList();
         }
 
@@ -125,7 +126,7 @@ namespace DialogueSystem.Editor
                         var to = FindNodeView(link.toGuid);
                         if (from == null || to == null || to.InputPort == null) continue;
                         var outPort = from.GetOutputPort(link.fromPort);
-                        if (outPort == null || to.InputPort.connections.Count > 0) continue;
+                        if (outPort == null) continue;
                         AddElement(outPort.ConnectTo(to.InputPort));
                     }
 

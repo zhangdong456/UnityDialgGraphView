@@ -50,7 +50,7 @@ Assets/DialogueSystem/
 - 事件系统(含加任务/完成任务/改数值模板) — `Runtime/Events/*.cs`
 - 运行上下文(黑板 + 任务记录) — `Runtime/DialogueContext.cs`
 - 对话播放器(交互节点等回调,自动节点立即执行,带死循环保护) — `Runtime/DialoguePlayer.cs`
-- GraphView 编辑器(创建/连线/删除/保存/开始节点管理/左侧详情面板/自适应正文/节点样式) — `Editor/*.cs`
+- GraphView 编辑器(创建/连线/删除/保存/开始节点管理/左侧详情面板/自适应正文/节点样式/多态列表选择器) — `Editor/*.cs`
 - 示例 UI 与示例资产生成器 — `Examples/`
 - 使用文档 — `README.md` + `Assets/DialogueSystem/使用手册.md`
 
@@ -65,8 +65,8 @@ Assets/DialogueSystem/
 - 状态分支节点中"空条件分支"永不命中,兜底必须连"默认"端口
 - 选择节点只保存选项与条件;运行时若无选项满足条件,对话直接结束
 - `DialoguePlayer` 的对话/选择/等待回调采用一次性会话校验,旧 UI 回调或重复点击不会推进新对话
-- GraphView 输入端口为单连接,避免一个节点存在多个前置入口
-- 左侧面板(节点详情)用 `IMGUIContainer` + `EditorGUILayout.PropertyField` 绘制:UIElements 的 `PropertyField` 对 SerializeReference 数组元素渲染不可靠(实测出现空白/只显示折叠框),IMGUI 路径稳定且 2022 中 SerializeReference 列表的类型选择器可用
+- GraphView 输入端口支持多连接,允许多个分支汇合到同一个节点;输出端口仍按节点规则限制
+- 左侧面板(节点详情)用 `IMGUIContainer` 绘制;普通字段使用 `EditorGUILayout.PropertyField`,Choice/Branch/Event 的多态列表使用自定义 `[SerializeReference]` 列表绘制器,避免 Unity 2022 默认控件出现“E”和不可点击的 Element 0/1
 - 枚举节点字段不能用 `SerializedProperty.NextVisible`——对 SerializeReference 数组元素它枚举不出任何可见子属性;正确做法是反射节点对象的字段(跳过 `[HideInInspector]`/未序列化字段),再 `FindPropertyRelative(字段名)` 取属性绘制
 - 详情面板用的 `SerializedObject` 存为窗口成员变量,切换节点时 Dispose 重建;每次重绘时 `Update()`/`ApplyModifiedProperties()`,修改后标脏资产并刷新图节点
 - GraphView 不位于窗口左上角时(如 SplitView 右侧),框选矩形与鼠标有偏移——Unity 官方已知问题且不修复,变通方案是给 GraphView 套一层普通 `VisualElement` 父容器

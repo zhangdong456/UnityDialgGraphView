@@ -36,8 +36,8 @@ namespace DialogueSystem.Editor
             // 开始节点是图的入口,没有输入端口
             if (!(data is StartNode))
             {
-                // 一个节点只能有一个前置节点,避免多个入口让图的执行顺序变得不确定。
-                InputPort = InstantiatePort(Orientation.Horizontal, Direction.Input, Port.Capacity.Single, typeof(bool));
+                // 一个节点可以接收多个前置节点,例如多个分支汇合到同一个对话节点。
+                InputPort = InstantiatePort(Orientation.Horizontal, Direction.Input, Port.Capacity.Multi, typeof(bool));
                 InputPort.portName = "输入";
                 inputContainer.Add(InputPort);
             }
@@ -78,12 +78,12 @@ namespace DialogueSystem.Editor
                     return new List<string>();
                 case ChoiceNode c:
                     return (c.choices ?? new List<ChoiceOption>())
-                        .Select((ch, i) => $"选项{i}: {Truncate(ch?.choiceText, 10)}")
+                        .Select((ch, i) => $"选项{i}: {ch?.choiceText ?? string.Empty}")
                         .ToList();
                 case StateBranchNode b:
                 {
                     var names = (b.cases ?? new List<BranchCase>())
-                        .Select((cs, i) => $"分支{i}: {Truncate(cs?.label, 10)}")
+                        .Select((cs, i) => $"分支{i}: {cs?.label ?? string.Empty}")
                         .ToList();
                     names.Add("默认");
                     return names;
@@ -122,7 +122,8 @@ namespace DialogueSystem.Editor
             }
 
             title = (Data is StartNode ? "▶ " : "") + GetDisplayName(Data.GetType());
-            summaryLabel.text = Truncate(Data.GetSummary(), 60);
+            // 节点摘要显示完整内容,不再用省略号截断。
+            summaryLabel.text = Data.GetSummary();
             ApplyNodeStyle();
 
             RefreshExpandedState();
@@ -172,10 +173,6 @@ namespace DialogueSystem.Editor
             return new Color(0.55f, 0.62f, 0.72f);
         }
 
-        static string Truncate(string text, int max)
-        {
-            if (string.IsNullOrEmpty(text)) return string.Empty;
-            return text.Length <= max ? text : text.Substring(0, max) + "…";
-        }
+
     }
 }
