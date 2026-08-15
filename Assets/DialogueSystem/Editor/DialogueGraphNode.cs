@@ -12,11 +12,11 @@ namespace DialogueSystem.Editor
     /// 图上一个节点的可视化表现:负责构建端口、显示标题与摘要、刷新端口。
     /// 端口规则:
     ///   开始节点 → 无输入端口,一个输出端口
-    ///   结束节点 → 无输出端口
-    ///   对话/等待/事件/自定义节点 → 一个输出端口
+    ///   结束/跳转节点 → 无输出端口
+    ///   对话/等待/单事件/自定义节点 → 一个输出端口
     ///   选择节点 → 每个选项一个输出端口
     ///   状态分支节点 → 每条分支一个输出端口 + 末尾"默认"端口
-    ///   跳转节点 → 无输出端口
+    /// 单事件节点(SingleEventNode)的标题 = 事件类型显示名,颜色 = 事件类型全局颜色。
     /// </summary>
     public class DialogueGraphNode : Node
     {
@@ -64,7 +64,7 @@ namespace DialogueSystem.Editor
             if (typeof(ChoiceNode).IsAssignableFrom(type)) return "选择节点";
             if (typeof(StateBranchNode).IsAssignableFrom(type)) return "状态分支节点";
             if (typeof(WaitNode).IsAssignableFrom(type)) return "等待节点";
-            if (typeof(EventNode).IsAssignableFrom(type)) return "事件节点";
+            if (typeof(SingleEventNode).IsAssignableFrom(type)) return "事件节点";
             if (typeof(JumpNode).IsAssignableFrom(type)) return "跳转节点";
             var customName = DialogueTypeMetadata.GetDisplayName(type);
             return customName == type.Name ? ObjectNames.NicifyVariableName(type.Name) : customName;
@@ -90,7 +90,7 @@ namespace DialogueSystem.Editor
                     return names;
                 }
                 default:
-                    // 对话/等待/事件/自定义节点:单输出
+                    // 对话/等待/单事件/自定义节点:单输出
                     return new List<string> { "下一个" };
             }
         }
@@ -122,13 +122,30 @@ namespace DialogueSystem.Editor
                 owner.AddElement(edge);
             }
 
-            title = (Data is StartNode ? "▶ " : "") + GetDisplayName(Data.GetType());
+            title = BuildTitle();
             // 节点摘要显示完整内容,不再用省略号截断。
             summaryLabel.text = Data.GetSummary();
             ApplyNodeStyle();
 
             RefreshExpandedState();
             RefreshPorts();
+        }
+
+        /// <summary>
+        /// 节点标题:单事件节点显示"事件类型名"(如"接取任务"),
+        /// 其余节点保持类型显示名;开始节点带 ▶ 前缀。
+        /// </summary>
+        string BuildTitle()
+        {
+            var prefix = Data is StartNode ? "▶ " : string.Empty;
+            if (Data is SingleEventNode single)
+            {
+                var eventType = single.eventData?.GetType();
+                return prefix + (eventType == null
+                    ? "事件节点(未选类型)"
+                    : DialogueTypeMetadata.GetDisplayName(eventType));
+            }
+            return prefix + GetDisplayName(Data.GetType());
         }
 
         public Port GetOutputPort(int index) =>
@@ -168,12 +185,11 @@ namespace DialogueSystem.Editor
             if (data is DialogueNode) return new Color(0.28f, 0.62f, 1f);
             if (data is ChoiceNode) return new Color(0.96f, 0.70f, 0.22f);
             if (data is StateBranchNode) return new Color(0.72f, 0.46f, 1f);
-            if (data is EventNode) return new Color(0.25f, 0.82f, 0.78f);
+            if (data is SingleEventNode single)
+                return DialogueEventColorStore.GetColor(single.eventData?.GetType());
             if (data is WaitNode) return new Color(0.42f, 0.68f, 0.86f);
             if (data is JumpNode) return new Color(0.95f, 0.48f, 0.72f);
             return new Color(0.55f, 0.62f, 0.72f);
         }
-
-
     }
 }

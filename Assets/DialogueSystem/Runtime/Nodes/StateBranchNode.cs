@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace DialogueSystem
 {
     /// <summary>
-    /// 状态分支节点里的一条分支:一组条件全部满足时命中。
+    /// 状态分支节点里的一条分支:一组条件按组合方式判断是否命中。
+    /// conditionMode = All(并)时全部满足才命中;Any(或)时任一满足即命中。
     /// 注意:条件为空的分支永远不会命中,兜底请使用"默认"出口。
     /// </summary>
     [Serializable]
@@ -14,13 +14,31 @@ namespace DialogueSystem
     {
         public string label;
 
+        [Tooltip("多个条件的组合方式:并=全部满足才命中;或=任一满足即命中。默认并。")]
+        public ConditionCombineMode conditionMode = ConditionCombineMode.All;
+
         [SerializeReference]
         public List<DialogueCondition> conditions = new List<DialogueCondition>();
 
         public bool Matches(DialogueContext context)
         {
+            // 空条件分支永不命中(兜底必须连"默认"端口,与旧版行为一致)
             if (conditions == null || conditions.Count == 0 || context == null) return false;
-            return conditions.All(c => c != null && c.Evaluate(context));
+
+            if (conditionMode == ConditionCombineMode.Any)
+            {
+                // 或:任一真实条件满足即命中;空元素忽略
+                for (int i = 0; i < conditions.Count; i++)
+                    if (conditions[i] != null && conditions[i].Evaluate(context))
+                        return true;
+                return false;
+            }
+
+            // 并:全部条件必须真实满足;空元素视为不满足(与旧版 c != null 语义一致)
+            for (int i = 0; i < conditions.Count; i++)
+                if (conditions[i] == null || !conditions[i].Evaluate(context))
+                    return false;
+            return true;
         }
     }
 

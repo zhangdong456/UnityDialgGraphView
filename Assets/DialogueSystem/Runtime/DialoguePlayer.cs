@@ -191,11 +191,9 @@ namespace DialogueSystem
                         break;
                     }
 
-                    case EventNode e:
-                        if (e.events != null)
-                            foreach (var evt in e.events)
-                                evt?.Execute(Context);
-                        current = CurrentAsset.GetNextNode(e.guid, 0);
+                    case SingleEventNode se:
+                        se.eventData?.Execute(Context);
+                        current = CurrentAsset.GetNextNode(se.guid, 0);
                         break;
 
                     case StateBranchNode b:

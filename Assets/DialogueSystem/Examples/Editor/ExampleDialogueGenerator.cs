@@ -60,9 +60,9 @@ namespace DialogueSystem.Examples
                 }
             });
 
-            var addQuest = Node(new Vector2(600, -160), new EventNode
+            var addQuest = Node(new Vector2(600, -160), new SingleEventNode
             {
-                events = { new AddQuestEvent { questId = "dragon_quest" } }
+                eventData = new AddQuestEvent { questId = "dragon_quest" }
             });
 
             var wait = Node(new Vector2(900, -160), new WaitNode { waitSeconds = 1.5f });
@@ -145,9 +145,9 @@ namespace DialogueSystem.Examples
                 dialogueText = "欢迎光临!有钱就是好顾客。"
             });
 
-            var spend = Node(new Vector2(300, 0), new EventNode
+            var spend = Node(new Vector2(300, 0), new SingleEventNode
             {
-                events = { new SetIntEvent { key = "gold", value = 0 } }
+                eventData = new SetIntEvent { key = "gold", value = 0 }
             });
 
             var thanks = Node(new Vector2(600, 0), new DialogueNode

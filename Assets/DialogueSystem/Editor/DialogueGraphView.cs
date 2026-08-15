@@ -80,6 +80,34 @@ namespace DialogueSystem.Editor
             return view;
         }
 
+        /// <summary>
+        /// 在指定位置创建一个单事件节点,并让它直接持有指定类型的事件实例。
+        /// 右键菜单"事件节点"分组里的每个事件类型都走这里。
+        /// </summary>
+        public DialogueGraphNode CreateSingleEventNode(Type eventType, Vector2 position)
+        {
+            if (eventType == null || !typeof(DialogueEvent).IsAssignableFrom(eventType))
+            {
+                // 空白事件节点:不选类型,创建后再到详情面板选择
+                return CreateNode(typeof(SingleEventNode), position);
+            }
+
+            var view = CreateNode(typeof(SingleEventNode), position);
+            if (view != null)
+            {
+                try
+                {
+                    ((SingleEventNode)view.Data).eventData = (DialogueEvent)Activator.CreateInstance(eventType);
+                    view.RefreshNode();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[DialogueSystem] 无法创建事件类型 {eventType.Name},请确保它有无参构造函数。\n{e}");
+                }
+            }
+            return view;
+        }
+
         DialogueGraphNode CreateNodeView(DialogueNodeData data)
         {
             var view = new DialogueGraphNode(data, this);

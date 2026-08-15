@@ -309,11 +309,10 @@ namespace DialogueSystem.Editor
                     customFields.Add("choices");
                     hasCustomFields = true;
                 }
-                else if (data is EventNode)
+                else if (data is SingleEventNode)
                 {
-                    DrawManagedReferenceList(nodeProp.FindPropertyRelative("events"),
-                        typeof(DialogueEvent), "事件");
-                    customFields.Add("events");
+                    DrawSingleEventInspector(nodeProp, (SingleEventNode)data);
+                    customFields.Add("eventData");
                     hasCustomFields = true;
                 }
                 else if (data is StateBranchNode)
@@ -357,6 +356,13 @@ namespace DialogueSystem.Editor
                     NotifyGraphChanged();
                     graphView?.RefreshAllNodes();
                 }
+            }
+            catch (ExitGUIException)
+            {
+                // ExitGUIException 是 IMGUI 的正常控制流:拾色器/上下文菜单等控件
+                // 在状态切换瞬间由 GUIUtility.ExitGUI 抛出,用于中断当帧 GUI。
+                // 必须继续上抛交给 Unity 处理;吞掉它会报错并造成 GUI 状态错乱。
+                throw;
             }
             catch (Exception e)
             {
@@ -406,6 +412,8 @@ namespace DialogueSystem.Editor
 
                 EditorGUILayout.PropertyField(item.FindPropertyRelative("choiceText"),
                     new GUIContent("Choice Text"));
+                EditorGUILayout.PropertyField(item.FindPropertyRelative("conditionMode"),
+                    new GUIContent("条件组合", "并:所有条件都满足才显示该选项;或:任一满足即显示"));
                 DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
                     typeof(DialogueCondition), "条件");
                 EditorGUILayout.EndVertical();
@@ -462,6 +470,8 @@ namespace DialogueSystem.Editor
 
                 EditorGUILayout.PropertyField(item.FindPropertyRelative("label"),
                     new GUIContent("Label"));
+                EditorGUILayout.PropertyField(item.FindPropertyRelative("conditionMode"),
+                    new GUIContent("条件组合", "并:所有条件都满足才命中该分支;或:任一满足即命中"));
                 DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
                     typeof(DialogueCondition), "条件");
                 EditorGUILayout.EndVertical();
@@ -475,6 +485,132 @@ namespace DialogueSystem.Editor
             }
             EditorGUILayout.EndVertical();
         }
+
+        /// <summary>
+        /// 单事件节点(SingleEventNode)的详情面板:
+        /// 事件类型选择/更换 + 事件字段编辑 + 事件类型全局颜色设置。
+        /// </summary>
+        void DrawSingleEventInspector(SerializedProperty nodeProp, SingleEventNode node)
+        {
+            var eventProp = nodeProp.FindPropertyRelative("eventData");
+            var currentType = node.eventData?.GetType();
+
+            EditorGUILayout.BeginVertical("box");
+
+            // ── 事件类型选择 / 更换 ──────────────────────────────
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("事件类型", EditorStyles.boldLabel,
+                GUILayout.Width(EditorGUIUtility.labelWidth - 4));
+            var buttonText = currentType == null
+                ? "选择事件类型…"
+                : GetManagedTypeDisplayName(currentType);
+            if (GUILayout.Button(buttonText, EditorStyles.popup))
+                ShowSingleEventTypeMenu(eventProp);
+            EditorGUILayout.EndHorizontal();
+            if (currentType != null)
+            {
+                var desc = DialogueTypeMetadata.GetDescription(currentType);
+                if (!string.IsNullOrEmpty(desc))
+                    EditorGUILayout.HelpBox(desc, MessageType.None);
+            }
+
+            EditorGUILayout.Space(2);
+
+            // ── 事件类型颜色(全局,按类型生效) ────────────────────
+            DrawEventColorField(currentType);
+
+            EditorGUILayout.Space(4);
+
+            // ── 事件字段 ────────────────────────────────────────
+            if (currentType == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "还没有选择事件类型。点击上方按钮选择,或删除此节点后从右键菜单的\"事件节点\"分组创建具体类型。",
+                    MessageType.Info);
+            }
+            else
+            {
+                DrawManagedReferenceFields(eventProp, currentType);
+            }
+            EditorGUILayout.EndVertical();
+        }
+
+        /// <summary>事件类型选择/更换菜单(单事件节点用)。</summary>
+        void ShowSingleEventTypeMenu(SerializedProperty eventProp)
+        {
+            var menu = new GenericMenu();
+            var types = GetManagedReferenceTypes(typeof(DialogueEvent)).ToList();
+            if (types.Count == 0)
+            {
+                menu.AddDisabledItem(new GUIContent("没有可用类型"));
+                menu.ShowAsContext();
+                return;
+            }
+
+            var currentType = eventProp.managedReferenceValue?.GetType();
+            foreach (var type in types)
+            {
+                var capturedType = type;
+                bool active = currentType == capturedType;
+                var content = new GUIContent(GetManagedTypeDisplayName(capturedType));
+                if (active)
+                    menu.AddDisabledItem(content, true);
+                else
+                    menu.AddItem(content, false, () =>
+                    {
+                        try
+                        {
+                            Undo.RecordObject(asset, "更换事件类型");
+                            var so = eventProp.serializedObject;
+                            so.Update();
+                            eventProp.managedReferenceValue = Activator.CreateInstance(capturedType);
+                            so.ApplyModifiedProperties();
+                            EditorUtility.SetDirty(asset);
+                            NotifyGraphChanged();
+                            graphView?.RefreshAllNodes();
+                            Repaint();
+                        }
+                        catch (Exception e)
+                        {
+                            Debug.LogException(e);
+                        }
+                    });
+            }
+            menu.ShowAsContext();
+        }
+
+        /// <summary>
+        /// 事件类型颜色设置行:显示当前颜色 + 拾色器 + 恢复自动色按钮。
+        /// 颜色按事件类型全局存储(EditorPrefs),对同类型所有节点生效。
+        /// </summary>
+        void DrawEventColorField(Type eventType)
+        {
+            if (eventType == null) return;
+
+            EditorGUILayout.BeginHorizontal();
+            var hasCustom = DialogueEventColorStore.HasCustomColor(eventType);
+            var label = hasCustom ? "节点颜色(全局)" : "节点颜色(自动)";
+            var color = DialogueEventColorStore.GetColor(eventType);
+            var newColor = EditorGUILayout.ColorField(
+                new GUIContent(label, "该颜色对同事件类型的所有节点全局生效(保存在本机编辑器偏好)"),
+                color);
+            if (!ColorsApproxEqual(newColor, color))
+                DialogueEventColorStore.SetColor(eventType, newColor);
+            if (hasCustom && GUILayout.Button("恢复自动", GUILayout.Width(64)))
+            {
+                DialogueEventColorStore.ClearColor(eventType);
+                graphView?.RefreshAllNodes();
+                Repaint();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (GUI.changed)
+                graphView?.RefreshAllNodes();
+        }
+
+        static bool ColorsApproxEqual(Color a, Color b) =>
+            Mathf.Abs(a.r - b.r) < 0.002f && Mathf.Abs(a.g - b.g) < 0.002f
+            && Mathf.Abs(a.b - b.b) < 0.002f && Mathf.Abs(a.a - b.a) < 0.002f;
 
         void DrawManagedReferenceList(SerializedProperty list, Type baseType, string label)
         {
