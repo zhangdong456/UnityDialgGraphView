@@ -16,7 +16,8 @@ Assets/DialogueSystem/
 │   ├── DialogueNodeData.cs       # 节点基类(guid、position、GetSummary)
 │   ├── DialogueEditorMetadata.cs # 编辑器显示名称/备注特性与类型元数据读取
 │   ├── Nodes/                    # StartNode(唯一入口)/ EndNode / DialogueNode / ChoiceNode(ChoiceOption)
-│   │                             #   / StateBranchNode(BranchCase) / WaitNode / SingleEventNode / JumpNode
+│   │                             #   / StateBranchNode(BranchCase) / RandomBranchNode / WaitNode
+│   │                             #   / SingleEventNode / JumpNode
 │   ├── Conditions/               # DialogueCondition 基类 + IntCompareCondition / BoolFlagCondition / QuestStateCondition
 │   │                             #   + ConditionCombineMode(条件并/或组合方式)
 │   ├── Events/                   # DialogueEvent 基类 + AddQuestEvent / CompleteQuestEvent / SetIntEvent(模板)
@@ -25,6 +26,8 @@ Assets/DialogueSystem/
 ├── Editor/
 │   ├── DialogueGraphWindow.cs    # 编辑器窗口:工具栏 + 左侧节点详情面板 + 右侧 GraphView
 │   ├── DialogueGraphView.cs      # 图的加载/保存/节点创建/开始节点管理(自动创建、防删除、唯一)
+│   │                             #   + Ctrl+S 保存、Ctrl+C/V 复制粘贴(鼠标落点,开始节点排除)
+│   ├── DialogueNodeCloneUtil.cs  # 节点深拷贝(反射逐字段,支持事件/条件/嵌套列表;Ctrl+C/V 核心)
 │   ├── DialogueGraphNode.cs      # 节点视图:端口构建与刷新、标题与摘要显示
 │   ├── DialogueNodeSearchWindow.cs # 创建节点菜单(TypeCache 自动收集子类;"事件节点"分组列出所有 DialogueEvent 子类)
 │   ├── DialogueEventColorStore.cs # 事件类型节点颜色的全局存储(EditorPrefs + 类型名哈希自动分配色)
@@ -42,6 +45,7 @@ Assets/DialogueSystem/
 - **事件节点模型(2026-08-15 重构)**:每个 `DialogueEvent` 子类都是一种独立的图节点(`SingleEventNode` 容器,内含一个 `[SerializeReference] DialogueEvent eventData`)。右键创建菜单的"事件节点"是分组,展开列出所有事件子类 + 空白事件节点;详情面板可随时更换事件类型。原多事件列表节点 `EventNode` 已删除(无旧资产需要兼容)。事件节点标题显示事件类型名(如"接取任务")
 - **事件类型颜色**:按事件类型全局自定义,存储在 `EditorPrefs`(键前缀 `DialogueSystem.EventNodeColor.`,Editor/DialogueEventColorStore.cs),不写入对话资产。给"接取任务"设色后,所有接取任务节点都是该颜色;未自定义的类型用类型全名 FNV-1a 哈希生成的稳定自动色(同名类型颜色恒定)。换电脑需重新设置
 - **条件并/或**:`ChoiceOption` 与 `BranchCase` 均有 `conditionMode`(`ConditionCombineMode.All`=并/`Any`=或),默认 All 与旧行为一致。或模式忽略列表中的空元素;空条件列表仍表示"无条件显示"(选项)/"永不命中"(分支,兜底走默认端口)
+- **随机分支节点(RandomBranchNode,2026-08-15 新增)**:先按条件过滤(规则同 BranchCase,支持并/或),再在**满足条件的分支中随机选一条**;无条件分支永远参与随机池(与状态分支"空条件永不命中"不同);没有任何分支参与时走"默认"端口(端口规则同状态分支:分支下标,`cases.Count` 为默认)。随机源为全局共享 `System.Random` 单例,`RandomBranchNode.ResetSeed(seed)` 可复现(测试/回放)
 - 端口序号约定:单输出节点恒为 0;选择节点 = 选项下标;分支节点 = 分支下标,`cases.Count` 为"默认"出口
 - `ChoiceNode` 只保存 `ChoiceOption` 列表;说话者和正文归 `DialogueNode`,运行时 `DialoguePlayer.OnChoice` 签名为 `(choices, callback)`
 - 自定义节点/条件/事件可使用 `[DialogueEditorName("显示名称", "备注")]`;编辑器通过 `DialogueTypeMetadata` 读取名称和描述,`GetSummary()` 显示实例摘要
@@ -53,7 +57,9 @@ Assets/DialogueSystem/
 ## 已完成功能清单
 
 - 对话资产与图数据结构(nodes/links/入口) — `Runtime/DialogueGraphAsset.cs`
-- 八种内置节点(开始/结束/对话/选择/状态分支/等待/单事件/跳转) — `Runtime/Nodes/*.cs`
+- 九种内置节点(开始/结束/对话/选择/状态分支/随机分支/等待/单事件/跳转) — `Runtime/Nodes/*.cs`
+- 随机分支节点:条件过滤后随机走一条,空条件分支永远参与,无参与者走默认 — `Runtime/Nodes/RandomBranchNode.cs`(全局 System.Random 单例,ResetSeed 可复现)
+- GraphView 内快捷键(2026-08-15 新增):Ctrl/Cmd+S 保存;Ctrl/Cmd+C 深拷贝选中节点(含事件/条件全部字段,生成新 guid);Ctrl/Cmd+V 粘贴到鼠标当前位置(可连续粘贴,每次独立克隆)。**开始节点禁止复制**(全图唯一)。键处理注册在 TrickleDown 阶段,先于 GraphView 内建键盘;粘贴落点用 MouseMoveEvent 缓存的图内容坐标 — `Editor/DialogueGraphView.cs` + `Editor/DialogueNodeCloneUtil.cs`(纯反射深拷贝,不依赖 UnityEditor API,可离线断言)
 - 事件节点 = 每个 DialogueEvent 子类一种独立节点(SingleEventNode),详情面板可更换类型,事件分组创建菜单 — `Runtime/Nodes/SingleEventNode.cs` + `Editor/DialogueNodeSearchWindow.cs`
 - 事件类型全局颜色自定义(EditorPrefs 存储 + 哈希自动分配色 + "恢复自动"按钮) — `Editor/DialogueEventColorStore.cs` + `DialogueGraphWindow.DrawEventColorField`
 - Tools→Dialogue System→导出对话文本到 Excel(选文件夹扫描全部 Dialogue Graph 资产,导出对话正文+选项文本,按全文去重,NPOI 生成 xlsx) — `Editor/DialogueTextExporter.cs`(依赖 `Assets/Plugins/NPOI` 2.1.1,仅编辑器;Runtime 零第三方依赖)
@@ -84,9 +90,9 @@ Assets/DialogueSystem/
 - GraphView 不位于窗口左上角时(如 SplitView 右侧),框选矩形与鼠标有偏移——Unity 官方已知问题且不修复,变通方案是给 GraphView 套一层普通 `VisualElement` 父容器
 - 用 `[SerializeReference]` 的文件必须 `using UnityEngine;`;`[OnOpenAsset]` 在 `UnityEditor.Callbacks` 命名空间
 - 图编辑器改动需手动保存;节点增删/移动只改内存,点"保存"才写入资产;新建节点保存前详情面板会提示"请先保存"
-- 离线验证:根目录 `verify.sh` 一键脚本(`bash verify.sh [Unity根目录]`,不传参自动探测常见安装位置)——① csc 编译 Runtime/Editor/Examples(引用真实 `Data\Managed\UnityEngine\*.dll`,Editor 额外引用 `Assets/Plugins/NPOI` 5 个 DLL);② 最小 UnityEngine 桩 + 真实 Runtime 源码编译执行 17 条逻辑断言(条件并/或、单事件节点播放链路);③ NPOI xlsx 往返冒烟(生成→读回断言 sheet/表头/中文换行/加粗)。临时产物在系统 Temp 的 `hermes-verify-*` 目录生成并 trap 自动清理。注意:mono/csc 是 Windows 程序,传给它的路径必须 `cygpath -m` 转 Windows 混合格式;MSYS `/tmp` 不可直接用。`ScriptableObject.CreateInstance`/`Object==` 是 internal call,mono 下必须 stub
+- 离线验证:根目录 `verify.sh` 一键脚本(`bash verify.sh [Unity根目录]`,不传参自动探测常见安装位置)——① csc 编译 Runtime/Editor/Examples(引用真实 `Data\Managed\UnityEngine\*.dll`,Editor 额外引用 `Assets/Plugins/NPOI` 5 个 DLL);② 最小 UnityEngine 桩 + 真实 Runtime 源码 + DialogueNodeCloneUtil.cs 编译执行 31 条逻辑断言(条件并/或、随机分支、节点深拷贝、单事件节点播放链路);③ NPOI xlsx 往返冒烟(生成→读回断言 sheet/表头/中文换行/加粗)。临时产物在系统 Temp 的 `hermes-verify-*` 目录生成并 trap 自动清理。注意:mono/csc 是 Windows 程序,传给它的路径必须 `cygpath -m` 转 Windows 混合格式;MSYS `/tmp` 不可直接用。`ScriptableObject.CreateInstance`/`Object==` 是 internal call,mono 下必须 stub
 - 事件类型颜色存 EditorPrefs(本机偏好),不随对话资产迁移;新机器上未自定义类型自动回落到哈希自动色
 - IMGUI 拾色器(EditorGUILayout.ColorField)点击瞬间会抛 `ExitGUIException` 中断当帧 GUI,这是正常控制流;`DrawNodeInspector` 的 catch 已单独放行(`catch (ExitGUIException) { throw; }`),不要再吞掉它,否则报错且 GUI 状态错乱
 - NPOI 是 2.1.1 旧版 API:加粗用 `IFont.Boldweight = (short)FontBoldWeight.Bold`(2.5+ 才有 `IsBold`);升级 NPOI 时 DialogueTextExporter 与 verify.sh 第③步需同步改
 
-生成时间:2026-08-10(最后更新:2026-08-15 事件节点重构 + 条件并/或 + Excel 导出 + 拾色器 ExitGUIException 修复)
+生成时间:2026-08-10(最后更新:2026-08-15 GraphView 快捷键 Ctrl+S/C/V)

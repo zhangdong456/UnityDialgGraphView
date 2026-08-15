@@ -17,6 +17,10 @@ namespace DialogueSystem.Editor
         readonly DialogueNodeSearchWindow searchWindow;
         bool isPopulating;
 
+        // 复制粘贴(Ctrl+C/V)与 Ctrl+S 保存的内部状态
+        DialogueNodeData clipboard;      // 上次复制出的节点深拷贝(独立于源节点)
+        Vector2 lastMouseGraphPos;       // 最近一次鼠标在图内容坐标中的位置(粘贴落点)
+
         public DialogueGraphView(DialogueGraphWindow window)
         {
             this.window = window;
@@ -38,6 +42,14 @@ namespace DialogueSystem.Editor
             nodeCreationRequest = ctx =>
                 SearchWindow.Open(new SearchWindowContext(ctx.screenMousePosition), searchWindow);
 
+            // 记录鼠标位置(面板坐标 → 图内容坐标,与节点 position 同空间),供 Ctrl+V 粘贴定位
+            RegisterCallback<MouseMoveEvent>(evt =>
+                lastMouseGraphPos = contentViewContainer.WorldToLocal(evt.mousePosition), TrickleDown.TrickleDown);
+
+            // TrickleDown 阶段拦截快捷键:先于 GraphView 内建键盘处理(如 Delete),
+            // 且不会在节点标题输入等场景误触(当前节点无内联文本输入)。
+            RegisterCallback<KeyDownEvent>(OnGraphKeyDown, TrickleDown.TrickleDown);
+
             graphViewChanged = change =>
             {
                 // 开始节点是固定入口,不允许删除
@@ -46,6 +58,60 @@ namespace DialogueSystem.Editor
                     window.NotifyGraphChanged();
                 return change;
             };
+        }
+
+        /// <summary>GraphView 内快捷键:Ctrl/Cmd+S 保存,Ctrl/Cmd+C 复制选中节点,Ctrl/Cmd+V 粘贴到鼠标处。</summary>
+        void OnGraphKeyDown(KeyDownEvent evt)
+        {
+            bool ctrl = evt.ctrlKey || evt.commandKey;
+            if (!ctrl) return;
+
+            switch (evt.keyCode)
+            {
+                case KeyCode.S:
+                    window.Save();
+                    evt.StopImmediatePropagation();
+                    break;
+                case KeyCode.C:
+                    CopySelectedNode();
+                    evt.StopImmediatePropagation();
+                    break;
+                case KeyCode.V:
+                    PasteClipboardAtMouse();
+                    evt.StopImmediatePropagation();
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 复制当前选中的节点(深拷贝,含事件/条件/所有字段)。
+        /// 开始节点全图唯一,禁止复制;多选时取第一个可复制的节点。
+        /// </summary>
+        public void CopySelectedNode()
+        {
+            foreach (var element in selection)
+            {
+                if (!(element is DialogueGraphNode nodeView)) continue;
+                if (nodeView.Data is StartNode)
+                {
+                    Debug.LogWarning("[DialogueSystem] 开始节点是全图唯一入口,无法复制。");
+                    return;
+                }
+                clipboard = DialogueNodeCloneUtil.Clone(nodeView.Data);
+                return; // 一次只复制一个
+            }
+        }
+
+        /// <summary>把剪贴板节点粘贴到鼠标最后所在位置;剪贴板为空或其中的开始节点引用失效时不粘贴。</summary>
+        public void PasteClipboardAtMouse()
+        {
+            if (clipboard == null) return;
+            if (clipboard is StartNode) return; // 防御:开始节点永不粘贴
+
+            var data = DialogueNodeCloneUtil.Clone(clipboard); // 再次克隆,支持多次粘贴互不影响
+            data.position = lastMouseGraphPos;
+            CreateNodeView(data);
+            window.NotifyGraphChanged();
         }
 
         public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)

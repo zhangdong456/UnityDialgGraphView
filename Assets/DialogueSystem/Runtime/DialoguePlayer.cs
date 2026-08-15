@@ -200,6 +200,10 @@ namespace DialogueSystem
                         current = CurrentAsset.GetNextNode(b.guid, b.Evaluate(Context));
                         break;
 
+                    case RandomBranchNode rb:
+                        current = CurrentAsset.GetNextNode(rb.guid, rb.Evaluate(Context));
+                        break;
+
                     case JumpNode j:
                     {
                         if (j.targetDialogue == null)

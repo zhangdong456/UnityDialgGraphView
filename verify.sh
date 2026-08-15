@@ -102,6 +102,7 @@ STUB_EOF
 cat > "$TMPW/smoke.cs" <<'SMOKE_EOF'
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using DialogueSystem;
 static class SmokeTest
 {
@@ -187,10 +188,143 @@ static class SmokeTest
         Check("branch all-miss -> default port 2", branch.Evaluate(ctx) == 2);
         Check("branch empty case never matches", !new BranchCase().Matches(ctx));
 
+        // 4. 随机分支节点
+        // 4a. 空 cases → 端口 0(不随机)
+        Check("random empty cases -> port 0", new RandomBranchNode().Evaluate(ctx) == 0);
+
+        // 4b. 确定性:ResetSeed 后两次同输入序列结果一致
+        var rndNode = new RandomBranchNode
+        {
+            cases = new List<BranchCase>
+            {
+                new BranchCase { label = "a" },  // 无条件 → 永远参与
+                new BranchCase { label = "b" }
+            }
+        };
+        RandomBranchNode.ResetSeed(42);
+        var seq1 = new List<int>();
+        for (int i = 0; i < 10; i++) seq1.Add(rndNode.Evaluate(ctx));
+        RandomBranchNode.ResetSeed(42);
+        var seq2 = new List<int>();
+        for (int i = 0; i < 10; i++) seq2.Add(rndNode.Evaluate(ctx));
+        Check("random deterministic with same seed", seq1.SequenceEqual(seq2));
+        Check("random covers both branches", seq1.Any(v => v == 0) && seq1.Any(v => v == 1));
+
+        // 4c. 频率:2000 次两条等概率分支约各占一半(45%~55%)
+        RandomBranchNode.ResetSeed(7);
+        int c0 = 0, c1 = 0;
+        for (int i = 0; i < 2000; i++)
+        {
+            var r = rndNode.Evaluate(ctx);
+            if (r == 0) c0++; else if (r == 1) c1++;
+        }
+        Check("random ~50/50 over 2000 rolls (45%-55%)",
+            c0 >= 900 && c0 <= 1100 && c0 + c1 == 2000);
+
+        // 4d. 条件过滤:gold>=50 满足时分支0参与,不满足时只剩无条件分支1;
+        //     全部不满足(有条件但都失败)→ 默认端口
+        var rndCond = new RandomBranchNode
+        {
+            cases = new List<BranchCase>
+            {
+                new BranchCase
+                {
+                    label = "rich",
+                    conditions = new List<DialogueCondition>
+                    { new IntCompareCondition { key = "gold", op = CompareOperator.GreaterOrEqual, value = 50 } }
+                },
+                new BranchCase { label = "anyone" }
+            }
+        };
+        ctx.Blackboard.SetInt("gold", 100);
+        var picked = new HashSet<int>();
+        for (int i = 0; i < 100; i++) picked.Add(rndCond.Evaluate(ctx));
+        Check("random cond rich+anyone both reachable when gold=100", picked.SetEquals(new[] { 0, 1 }));
+        ctx.Blackboard.SetInt("gold", 10);
+        picked.Clear();
+        for (int i = 0; i < 100; i++) picked.Add(rndCond.Evaluate(ctx));
+        Check("random cond only branch 1 when gold=10", picked.SetEquals(new[] { 1 }));
+
+        var rndNone = new RandomBranchNode
+        {
+            cases = new List<BranchCase>
+            {
+                new BranchCase
+                {
+                    label = "impossible",
+                    conditions = new List<DialogueCondition>
+                    { new IntCompareCondition { key = "gold", op = CompareOperator.GreaterOrEqual, value = 1000000 } }
+                }
+            }
+        };
+        RandomBranchNode.ResetSeed(1);
+        Check("random all-cond-fail -> default port (= cases.Count)", rndNone.Evaluate(ctx) == 1);
+
         // SingleEventNode 摘要 + 播放链路
         Check("blank summary", new SingleEventNode().GetSummary() == "(未选择事件类型)");
         Check("event summary",
             new SingleEventNode { eventData = new SetIntEvent { key = "gold", value = 77 } }.GetSummary() == "gold = 77");
+
+        // 5. 节点深拷贝(DialogueNodeCloneUtil,Ctrl+C/V 的核心)
+        var srcTalk = new DialogueNode
+        {
+            guid = "src-1",
+            speakerName = "村长",
+            dialogueText = "原文"
+        };
+        var copyTalk = (DialogueNode)DialogueSystem.Editor.DialogueNodeCloneUtil.Clone(srcTalk);
+        Check("clone dialogue fields equal",
+            copyTalk.speakerName == "村长" && copyTalk.dialogueText == "原文");
+        Check("clone has new guid", copyTalk.guid != srcTalk.guid && !string.IsNullOrEmpty(copyTalk.guid));
+        copyTalk.dialogueText = "改过的克隆";
+        Check("clone independent of source (string field)", srcTalk.dialogueText == "原文");
+
+        var srcEvent = new SingleEventNode
+        {
+            guid = "src-2",
+            eventData = new SetIntEvent { key = "gold", value = 5 }
+        };
+        var copyEvent = (SingleEventNode)DialogueSystem.Editor.DialogueNodeCloneUtil.Clone(srcEvent);
+        Check("clone single-event: eventData deep copied",
+            copyEvent.eventData != null && copyEvent.eventData != srcEvent.eventData
+            && copyEvent.eventData is SetIntEvent);
+        ((SetIntEvent)copyEvent.eventData).value = 999;
+        Check("clone single-event: event fields independent",
+            ((SetIntEvent)srcEvent.eventData).value == 5);
+        var copyEvent2 = DialogueSystem.Editor.DialogueNodeCloneUtil.Clone(copyEvent);
+        Check("re-clone for multi-paste: new guid each time", copyEvent2.guid != copyEvent.guid);
+
+        var srcChoice = new ChoiceNode
+        {
+            guid = "src-3",
+            choices =
+            {
+                new ChoiceOption
+                {
+                    choiceText = "去商店",
+                    conditionMode = ConditionCombineMode.Any,
+                    conditions = { new IntCompareCondition { key = "gold", op = CompareOperator.GreaterOrEqual, value = 50 } }
+                },
+                new ChoiceOption { choiceText = "离开" }
+            }
+        };
+        var copyChoice = (ChoiceNode)DialogueSystem.Editor.DialogueNodeCloneUtil.Clone(srcChoice);
+        Check("clone choice: list deep copied",
+            copyChoice.choices.Count == 2 && copyChoice.choices[0].choiceText == "去商店"
+            && copyChoice.choices[1].choiceText == "离开");
+        Check("clone choice: conditionMode preserved",
+            copyChoice.choices[0].conditionMode == ConditionCombineMode.Any);
+        var srcCond = (IntCompareCondition)srcChoice.choices[0].conditions[0];
+        var copyCond = (IntCompareCondition)copyChoice.choices[0].conditions[0];
+        Check("clone choice: nested condition deep copied",
+            copyCond != srcCond && copyCond.key == "gold" && copyCond.value == 50
+            && copyCond.op == CompareOperator.GreaterOrEqual);
+        copyChoice.choices[0].choiceText = "改";
+        srcCond.value = 500;
+        Check("clone choice: modifications do not leak",
+            srcChoice.choices[0].choiceText == "去商店" && copyCond.value == 50);
+
+        // 6. 播放链路
 
         var asset = (DialogueGraphAsset)System.Runtime.Serialization.FormatterServices
             .GetUninitializedObject(typeof(DialogueGraphAsset));
@@ -247,7 +381,7 @@ static class SmokeTest
 SMOKE_EOF
 
 "$MONO" "$CSC" -nologo -target:exe -out:"$TMPW/smoke.exe" -langversion:latest -r:"$NS" \
-  "$TMPW/stubs.cs" "$TMPW/smoke.cs" "${RT_SRC[@]}" \
+  "$TMPW/stubs.cs" "$TMPW/smoke.cs" "$PROJ/Editor/DialogueNodeCloneUtil.cs" "${RT_SRC[@]}" \
   || { echo "FAIL: 断言程序编译错误"; exit 1; }
 "$MONO" "$TMPW/smoke.exe"
 RC=$?

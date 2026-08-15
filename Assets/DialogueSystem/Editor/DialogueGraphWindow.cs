@@ -321,6 +321,12 @@ namespace DialogueSystem.Editor
                     customFields.Add("cases");
                     hasCustomFields = true;
                 }
+                else if (data is RandomBranchNode)
+                {
+                    DrawBranchCases(nodeProp.FindPropertyRelative("cases"));
+                    customFields.Add("cases");
+                    hasCustomFields = true;
+                }
 
                 // 注意:不要用 SerializedProperty.NextVisible 枚举 SerializeReference 数组元素
                 // 的子字段——实测它一个可见子属性都枚举不出来(元素属性的怪癖)。

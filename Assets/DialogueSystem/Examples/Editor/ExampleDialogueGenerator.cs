@@ -150,21 +150,47 @@ namespace DialogueSystem.Examples
                 eventData = new SetIntEvent { key = "gold", value = 0 }
             });
 
-            var thanks = Node(new Vector2(600, 0), new DialogueNode
+            var randomTalk = Node(new Vector2(600, 0), new RandomBranchNode
             {
-                speakerName = "商人",
-                dialogueText = "感谢惠顾!(示例事件已把金币清零)"
+                cases =
+                {
+                    new BranchCase { label = "客气话", conditions = { } },
+                    new BranchCase { label = "催促", conditions = { } }
+                }
             });
 
-            var end = Node(new Vector2(900, 0), new EndNode());
+            var polite = Node(new Vector2(900, -90), new DialogueNode
+            {
+                speakerName = "商人",
+                dialogueText = "感谢惠顾!这是找您的零钱。"
+            });
 
-            asset.nodes.AddRange(new DialogueNodeData[] { start, welcome, spend, thanks, end });
+            var hurry = Node(new Vector2(900, 90), new DialogueNode
+            {
+                speakerName = "商人",
+                dialogueText = "好了好了,下一位!"
+            });
+
+            var thanks = Node(new Vector2(1200, 0), new DialogueNode
+            {
+                speakerName = "商人",
+                dialogueText = "欢迎再来!(示例事件已把金币清零)"
+            });
+
+            var end = Node(new Vector2(1500, 0), new EndNode());
+
+            asset.nodes.AddRange(new DialogueNodeData[]
+                { start, welcome, spend, randomTalk, polite, hurry, thanks, end });
             asset.entryNodeGuid = start.guid;
 
             Link(asset, start, 0, welcome);
             Link(asset, welcome, 0, spend);
-            Link(asset, spend, 0, thanks);
-            Link(asset, thanks, 0, end);
+            Link(asset, spend, 0, randomTalk);
+            Link(asset, randomTalk, 0, polite);   // 随机分支 0:客气话(无条件 → 参与随机)
+            Link(asset, randomTalk, 1, hurry);    // 随机分支 1:催促(无条件 → 参与随机)
+            Link(asset, randomTalk, 2, thanks);   // 默认出口(所有分支都不满足时走这里)
+            Link(asset, polite, 0, thanks);
+            Link(asset, hurry, 0, thanks);
 
             return asset;
         }

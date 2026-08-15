@@ -63,6 +63,7 @@ namespace DialogueSystem.Editor
             if (typeof(DialogueNode).IsAssignableFrom(type)) return "对话节点";
             if (typeof(ChoiceNode).IsAssignableFrom(type)) return "选择节点";
             if (typeof(StateBranchNode).IsAssignableFrom(type)) return "状态分支节点";
+            if (typeof(RandomBranchNode).IsAssignableFrom(type)) return "随机分支节点";
             if (typeof(WaitNode).IsAssignableFrom(type)) return "等待节点";
             if (typeof(SingleEventNode).IsAssignableFrom(type)) return "事件节点";
             if (typeof(JumpNode).IsAssignableFrom(type)) return "跳转节点";
@@ -84,6 +85,14 @@ namespace DialogueSystem.Editor
                 case StateBranchNode b:
                 {
                     var names = (b.cases ?? new List<BranchCase>())
+                        .Select((cs, i) => $"分支{i}: {cs?.label ?? string.Empty}")
+                        .ToList();
+                    names.Add("默认");
+                    return names;
+                }
+                case RandomBranchNode rb:
+                {
+                    var names = (rb.cases ?? new List<BranchCase>())
                         .Select((cs, i) => $"分支{i}: {cs?.label ?? string.Empty}")
                         .ToList();
                     names.Add("默认");
@@ -185,6 +194,7 @@ namespace DialogueSystem.Editor
             if (data is DialogueNode) return new Color(0.28f, 0.62f, 1f);
             if (data is ChoiceNode) return new Color(0.96f, 0.70f, 0.22f);
             if (data is StateBranchNode) return new Color(0.72f, 0.46f, 1f);
+            if (data is RandomBranchNode) return new Color(0.58f, 0.80f, 0.35f);
             if (data is SingleEventNode single)
                 return DialogueEventColorStore.GetColor(single.eventData?.GetType());
             if (data is WaitNode) return new Color(0.42f, 0.68f, 0.86f);
