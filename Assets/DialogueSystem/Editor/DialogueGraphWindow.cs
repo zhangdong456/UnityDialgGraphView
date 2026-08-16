@@ -43,7 +43,17 @@ namespace DialogueSystem.Editor
         [OnOpenAsset]
         static bool OnOpenAsset(int instanceId, int line)
         {
+            // Unity 6 起 InstanceIDToObject 被标记为"过时=报错"(CS0619),必须改用 EntityIdToObject;
+            // 2022 又没有新 API,因此按版本条件编译,保证两个版本都能编译通过。
+            // EntityId.FromULong 编码与 int 隐式转换不同(实测结果不相等),不能用;
+            // int→EntityId 隐式转换只带"未来移除"警告,是当前正确做法,故局部屏蔽 CS0618。
+#if UNITY_6000_0_OR_NEWER
+#pragma warning disable CS0618
+            var target = EditorUtility.EntityIdToObject(instanceId) as DialogueGraphAsset;
+#pragma warning restore CS0618
+#else
             var target = EditorUtility.InstanceIDToObject(instanceId) as DialogueGraphAsset;
+#endif
             if (target == null) return false;
             OpenWith(target);
             return true;
@@ -215,7 +225,9 @@ namespace DialogueSystem.Editor
         {
             if (inspectorPanel == null) return;
             inspectorPanel.Clear();
-            inspectedGuid = graphView?.GetSelectedNodeData()?.guid;
+            var newGuid = graphView?.GetSelectedNodeData()?.guid;
+            if (newGuid != inspectedGuid) foldStates.Clear(); // 切换节点时丢弃上一个节点的折叠记忆
+            inspectedGuid = newGuid;
 
             // 释放上一次绑定的 SerializedObject,避免泄漏原生对象
             inspectedSo?.Dispose();
@@ -305,7 +317,7 @@ namespace DialogueSystem.Editor
                 var hasCustomFields = false;
                 if (data is ChoiceNode)
                 {
-                    DrawChoiceOptions(nodeProp.FindPropertyRelative("choices"));
+                    DrawChoiceOptions(nodeProp.FindPropertyRelative("choices"), guid);
                     customFields.Add("choices");
                     hasCustomFields = true;
                 }
@@ -317,13 +329,13 @@ namespace DialogueSystem.Editor
                 }
                 else if (data is StateBranchNode)
                 {
-                    DrawBranchCases(nodeProp.FindPropertyRelative("cases"));
+                    DrawBranchCases(nodeProp.FindPropertyRelative("cases"), guid);
                     customFields.Add("cases");
                     hasCustomFields = true;
                 }
                 else if (data is RandomBranchNode)
                 {
-                    DrawBranchCases(nodeProp.FindPropertyRelative("cases"));
+                    DrawBranchCases(nodeProp.FindPropertyRelative("cases"), guid);
                     customFields.Add("cases");
                     hasCustomFields = true;
                 }
@@ -376,7 +388,7 @@ namespace DialogueSystem.Editor
             }
         }
 
-        void DrawChoiceOptions(SerializedProperty list)
+        void DrawChoiceOptions(SerializedProperty list, string guid)
         {
             if (list == null || !list.isArray)
             {
@@ -404,37 +416,34 @@ namespace DialogueSystem.Editor
             {
                 var item = list.GetArrayElementAtIndex(i);
                 EditorGUILayout.BeginVertical("helpBox");
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField($"选择 {i}", EditorStyles.boldLabel);
-                if (GUILayout.Button("删除", GUILayout.Width(42)))
+                var (open, deleteClicked) = DrawItemHeader($"{guid}:choice:{i}",
+                    itemPalette[i % itemPalette.Length],
+                    $"选择 {i}", item.FindPropertyRelative("choiceText").stringValue, defaultOpen: true);
+                if (deleteClicked)
                     removeIndex = i;
-                EditorGUILayout.EndHorizontal();
-
-                if (removeIndex == i)
+                else if (open)
                 {
-                    EditorGUILayout.EndVertical();
-                    break;
+                    EditorGUILayout.PropertyField(item.FindPropertyRelative("choiceText"),
+                        new GUIContent("Choice Text"));
+                    EditorGUILayout.PropertyField(item.FindPropertyRelative("conditionMode"),
+                        new GUIContent("条件组合", "并:所有条件都满足才显示该选项;或:任一满足即显示"));
+                    DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
+                        typeof(DialogueCondition), "条件", $"{guid}:choice:{i}:cond");
                 }
-
-                EditorGUILayout.PropertyField(item.FindPropertyRelative("choiceText"),
-                    new GUIContent("Choice Text"));
-                EditorGUILayout.PropertyField(item.FindPropertyRelative("conditionMode"),
-                    new GUIContent("条件组合", "并:所有条件都满足才显示该选项;或:任一满足即显示"));
-                DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
-                    typeof(DialogueCondition), "条件");
                 EditorGUILayout.EndVertical();
             }
 
             if (removeIndex >= 0)
             {
                 Undo.RecordObject(asset, "删除选择");
+                ShiftFoldStates($"{guid}:choice", removeIndex);
                 list.DeleteArrayElementAtIndex(removeIndex);
                 GUI.changed = true;
             }
             EditorGUILayout.EndVertical();
         }
 
-        void DrawBranchCases(SerializedProperty list)
+        void DrawBranchCases(SerializedProperty list, string guid)
         {
             if (list == null || !list.isArray)
             {
@@ -462,30 +471,27 @@ namespace DialogueSystem.Editor
             {
                 var item = list.GetArrayElementAtIndex(i);
                 EditorGUILayout.BeginVertical("helpBox");
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField($"分支 {i}", EditorStyles.boldLabel);
-                if (GUILayout.Button("删除", GUILayout.Width(42)))
+                var (open, deleteClicked) = DrawItemHeader($"{guid}:case:{i}",
+                    itemPalette[i % itemPalette.Length],
+                    $"分支 {i}", item.FindPropertyRelative("label").stringValue, defaultOpen: true);
+                if (deleteClicked)
                     removeIndex = i;
-                EditorGUILayout.EndHorizontal();
-
-                if (removeIndex == i)
+                else if (open)
                 {
-                    EditorGUILayout.EndVertical();
-                    break;
+                    EditorGUILayout.PropertyField(item.FindPropertyRelative("label"),
+                        new GUIContent("Label"));
+                    EditorGUILayout.PropertyField(item.FindPropertyRelative("conditionMode"),
+                        new GUIContent("条件组合", "并:所有条件都满足才命中该分支;或:任一满足即命中"));
+                    DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
+                        typeof(DialogueCondition), "条件", $"{guid}:case:{i}:cond");
                 }
-
-                EditorGUILayout.PropertyField(item.FindPropertyRelative("label"),
-                    new GUIContent("Label"));
-                EditorGUILayout.PropertyField(item.FindPropertyRelative("conditionMode"),
-                    new GUIContent("条件组合", "并:所有条件都满足才命中该分支;或:任一满足即命中"));
-                DrawManagedReferenceList(item.FindPropertyRelative("conditions"),
-                    typeof(DialogueCondition), "条件");
                 EditorGUILayout.EndVertical();
             }
 
             if (removeIndex >= 0)
             {
                 Undo.RecordObject(asset, "删除分支");
+                ShiftFoldStates($"{guid}:case", removeIndex);
                 list.DeleteArrayElementAtIndex(removeIndex);
                 GUI.changed = true;
             }
@@ -618,7 +624,7 @@ namespace DialogueSystem.Editor
             Mathf.Abs(a.r - b.r) < 0.002f && Mathf.Abs(a.g - b.g) < 0.002f
             && Mathf.Abs(a.b - b.b) < 0.002f && Mathf.Abs(a.a - b.a) < 0.002f;
 
-        void DrawManagedReferenceList(SerializedProperty list, Type baseType, string label)
+        void DrawManagedReferenceList(SerializedProperty list, Type baseType, string label, string keyPrefix)
         {
             if (list == null || !list.isArray)
             {
@@ -642,31 +648,27 @@ namespace DialogueSystem.Editor
                     ? "未选择类型"
                     : GetManagedTypeDisplayName(managedValue.GetType());
                 var summary = GetManagedReferenceSummary(managedValue);
-                if (!string.IsNullOrEmpty(summary) && summary != typeName)
-                    typeName += $" - {summary}";
+                var subtitle = string.IsNullOrEmpty(summary) ? typeName : $"{typeName} - {summary}";
 
                 EditorGUILayout.BeginVertical("helpBox");
-                EditorGUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField($"{label} {i}: {typeName}", EditorStyles.boldLabel);
-                if (GUILayout.Button("删除", GUILayout.Width(42)))
+                // 条件默认折叠:平时只保留一行"序号+类型+摘要",点标题行才展开编辑,
+                // 避免条件多时详情面板被完全铺开(选择节点与分支节点共用此绘制)。
+                var (open, deleteClicked) = DrawItemHeader($"{keyPrefix}:{i}",
+                    itemPalette[i % itemPalette.Length], $"{label} {i}", subtitle, defaultOpen: false);
+                if (deleteClicked)
                     removeIndex = i;
-                EditorGUILayout.EndHorizontal();
-
-                if (removeIndex == i)
+                else if (open)
                 {
-                    EditorGUILayout.EndVertical();
-                    break;
-                }
-
-                if (managedValue == null)
-                {
-                    EditorGUILayout.HelpBox("还没有选择类型,请点击下面的按钮。", MessageType.Info);
-                    if (GUILayout.Button($"选择{label}类型"))
-                        ShowManagedReferenceMenu(list, baseType, i);
-                }
-                else
-                {
-                    DrawManagedReferenceFields(element, managedValue.GetType());
+                    if (managedValue == null)
+                    {
+                        EditorGUILayout.HelpBox("还没有选择类型,请点击下面的按钮。", MessageType.Info);
+                        if (GUILayout.Button($"选择{label}类型"))
+                            ShowManagedReferenceMenu(list, baseType, i);
+                    }
+                    else
+                    {
+                        DrawManagedReferenceFields(element, managedValue.GetType());
+                    }
                 }
                 EditorGUILayout.EndVertical();
             }
@@ -674,10 +676,115 @@ namespace DialogueSystem.Editor
             if (removeIndex >= 0)
             {
                 Undo.RecordObject(asset, $"删除{label}");
+                ShiftFoldStates(keyPrefix, removeIndex);
                 list.DeleteArrayElementAtIndex(removeIndex);
                 GUI.changed = true;
             }
             EditorGUILayout.EndVertical();
+        }
+
+        // ── 列表条目的折叠状态与配色(选项/分支/条件详情共用) ─────
+        // IMGUI 每帧重绘,局部变量无法保存折叠状态,必须用静态字典记忆。
+        // 键格式:{guid}:choice:{i} / {guid}:case:{i} / {guid}:choice:{i}:cond:{j}。
+        static readonly Dictionary<string, bool> foldStates = new Dictionary<string, bool>();
+
+        // 每个条目循环取一个醒目颜色画色带,条目多时靠颜色即可一眼区分每一块
+        static readonly Color[] itemPalette =
+        {
+            new Color(0.30f, 0.72f, 0.95f), // 蓝
+            new Color(0.98f, 0.66f, 0.28f), // 橙
+            new Color(0.56f, 0.82f, 0.36f), // 绿
+            new Color(0.82f, 0.52f, 0.94f), // 紫
+            new Color(0.96f, 0.44f, 0.56f), // 玫红
+            new Color(0.90f, 0.80f, 0.34f), // 黄
+            new Color(0.42f, 0.80f, 0.76f), // 青
+            new Color(0.72f, 0.62f, 0.55f), // 棕
+        };
+
+        // 惰性初始化:new GUIStyle 必须在 OnGUI 上下文中调用,
+        // 类加载时(如注册菜单)创建会在部分版本抛"can only be called from inside OnGUI"。
+        static GUIStyle subtitleStyle;
+
+        static GUIStyle SubtitleStyle => subtitleStyle ??= new GUIStyle(EditorStyles.miniLabel)
+        {
+            clipping = TextClipping.Clip
+        };
+
+        static bool GetFoldState(string key, bool defaultValue) =>
+            foldStates.TryGetValue(key, out var value) ? value : defaultValue;
+
+        static void SetFoldState(string key, bool value) => foldStates[key] = value;
+
+        /// <summary>删除列表元素后,把折叠状态键中大于删除下标的序号整体前移,避免记忆串位到别的元素。</summary>
+        static void ShiftFoldStates(string listPrefix, int removedIndex)
+        {
+            var shifted = new Dictionary<string, bool>();
+            foreach (var kv in foldStates)
+            {
+                if (!kv.Key.StartsWith(listPrefix + ":", StringComparison.Ordinal))
+                {
+                    shifted[kv.Key] = kv.Value;
+                    continue;
+                }
+                var rest = kv.Key.Substring(listPrefix.Length + 1);
+                var separator = rest.IndexOf(':');
+                var numberPart = separator < 0 ? rest : rest.Substring(0, separator);
+                if (!int.TryParse(numberPart, out var index) || index < removedIndex)
+                {
+                    shifted[kv.Key] = kv.Value;
+                    continue;
+                }
+                if (index == removedIndex) continue; // 被删条目自身的状态直接丢弃
+                var suffix = separator < 0 ? string.Empty : rest.Substring(separator);
+                shifted[$"{listPrefix}:{index - 1}{suffix}"] = kv.Value;
+            }
+            foldStates.Clear();
+            foreach (var kv in shifted) foldStates[kv.Key] = kv.Value;
+        }
+
+        /// <summary>
+        /// 列表条目的可折叠标题行:半透明色带背景 + 左侧实心色条 + 折叠箭头 + 标题/副标题 + 删除按钮。
+        /// 返回(是否展开, 是否点击了删除)。副标题用于折叠时快速识别内容(选项文本/分支标签/条件摘要)。
+        /// </summary>
+        (bool open, bool deleteClicked) DrawItemHeader(string key, Color accent, string title,
+            string subtitle, bool defaultOpen)
+        {
+            var open = GetFoldState(key, defaultOpen);
+            var rect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight + 6);
+
+            // 色带略超出内容区,与 helpBox 边框对齐成通栏效果
+            var band = new Rect(rect.x - 2, rect.y - 1, rect.width + 4, rect.height + 2);
+            EditorGUI.DrawRect(band, new Color(accent.r, accent.g, accent.b, 0.22f));
+            EditorGUI.DrawRect(new Rect(band.x, band.y, 3, band.height), accent);
+
+            var delRect = new Rect(band.xMax - 46, rect.y + 2, 42, rect.height - 4);
+            var deleteClicked = GUI.Button(delRect, "删除", EditorStyles.miniButton);
+
+            var arrowRect = new Rect(band.x + 6, rect.y, 14, rect.height);
+            open = EditorGUI.Foldout(arrowRect, open, GUIContent.none);
+
+            var titleWidth = EditorStyles.boldLabel.CalcSize(new GUIContent(title)).x;
+            var titleRect = new Rect(arrowRect.xMax + 2, rect.y, titleWidth + 2, rect.height);
+            GUI.Label(titleRect, title, EditorStyles.boldLabel);
+
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var subtitleRect = new Rect(titleRect.xMax, rect.y + 2,
+                    Mathf.Max(20f, delRect.x - 6 - titleRect.xMax), rect.height);
+                GUI.Label(subtitleRect, subtitle.Replace('\n', ' '), SubtitleStyle);
+            }
+
+            // 点击色带空白处也可切换折叠(箭头与删除按钮会先消费各自的事件,不会重复切换)
+            var evt = Event.current;
+            if (evt != null && evt.type == EventType.MouseDown && evt.button == 0
+                && band.Contains(evt.mousePosition))
+            {
+                open = !open;
+                evt.Use();
+            }
+
+            SetFoldState(key, open);
+            return (open, deleteClicked);
         }
 
         void DrawManagedReferenceFields(SerializedProperty element, Type managedType)

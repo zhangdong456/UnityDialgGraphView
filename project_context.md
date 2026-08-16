@@ -2,7 +2,7 @@
 
 ## 技术栈
 
-- 引擎:Unity 2022.x(编辑器扩展基于 `UnityEditor.Experimental.GraphView` + UIElements/IMGUI)
+- 引擎:Unity 2022.x 与 Unity 6(6000.x,实测 6000.5)双版本支持(编辑器扩展基于 `UnityEditor.Experimental.GraphView` + UIElements/IMGUI)
 - 语言:C#(无第三方依赖,无 asmdef)
 - 序列化:`ScriptableObject` 资产 + `[SerializeReference]` 多态序列化节点/条件/事件
 - 构建:无需构建,把 `Assets/DialogueSystem` 拷入 Unity 工程的 `Assets` 即可
@@ -69,12 +69,14 @@ Assets/DialogueSystem/
 - 运行上下文(黑板 + 任务记录) — `Runtime/DialogueContext.cs`
 - 对话播放器(交互节点等回调,自动节点立即执行,带死循环保护) — `Runtime/DialoguePlayer.cs`
 - GraphView 编辑器(创建/连线/删除/保存/开始节点管理/左侧详情面板/自适应正文/节点样式/多态列表选择器) — `Editor/*.cs`
+- 详情面板列表条目(选项/分支/条件,2026-08-16 改进):每条一个循环配色色带+左侧色条,折叠式标题行(折叠箭头+标题+副标题摘要+删除按钮,点击色带任意空白处也可折叠);选项/分支默认展开、条件默认收起。折叠状态存 `DialogueGraphWindow.foldStates` 静态字典(键 `{guid}:choice:{i}` / `{guid}:case:{i}` / `…:cond:{j}`),切换节点清空、删除元素时序号整体前移(`ShiftFoldStates`) — `Editor/DialogueGraphWindow.cs`
 - 示例 UI 与示例资产生成器 — `Examples/`
 - 使用文档 — `README.md` + `Assets/DialogueSystem/使用手册.md`
 
 ## 待办与下一步
 
 - 已在真实 Unity 2022 编辑器中验证:编译通过、节点详情可编辑、Start/End 流程可用
+- 已在 Unity 2022.3.62 与 Unity 6.5(6000.5.7f1)双版本离线端到端验证:csc 双版本编译零错误零警告;两版本批处理模式(-batchmode -executeMethod)导入+编译全部通过;verify.sh 31 条逻辑断言 + NPOI 往返通过
 - 可选增强:对话文本本地化、节点复制粘贴、小地图、示例场景
 
 ## 已知坑点与注意事项
@@ -94,5 +96,8 @@ Assets/DialogueSystem/
 - 事件类型颜色存 EditorPrefs(本机偏好),不随对话资产迁移;新机器上未自定义类型自动回落到哈希自动色
 - IMGUI 拾色器(EditorGUILayout.ColorField)点击瞬间会抛 `ExitGUIException` 中断当帧 GUI,这是正常控制流;`DrawNodeInspector` 的 catch 已单独放行(`catch (ExitGUIException) { throw; }`),不要再吞掉它,否则报错且 GUI 状态错乱
 - NPOI 是 2.1.1 旧版 API:加粗用 `IFont.Boldweight = (short)FontBoldWeight.Bold`(2.5+ 才有 `IsBold`);升级 NPOI 时 DialogueTextExporter 与 verify.sh 第③步需同步改
+- Unity 6(6000.x)兼容:`EditorUtility.InstanceIDToObject` 在 Unity 6 被标"过时=报错"(CS0619),必须用 `EntityIdToObject`,但 2022 又没有新 API —— `DialogueGraphWindow.OnOpenAsset` 里用 `#if UNITY_6000_0_OR_NEWER` 条件编译(实测 6000.5 有该宏、2022.3 无)。`int→EntityId` 隐式转换带 CS0618 警告但编码正确,`EntityId.FromULong((ulong)(uint)id)` 编码与隐式转换**不相等**(实测全部不等,含 0),不能用,故局部 `#pragma` 屏蔽警告
+- 右键创建菜单里"事件节点"分组条目前面的空格是 Unity 内置行为,不是本项目 bug:SearchWindow 对分组(`SearchTreeGroupEntry`)用 `AC GroupButton` 样式(padding.left=18),对普通条目用 `AC ComponentButton`(padding.left=1),并在分组右侧画展开箭头;两个版本(2022.3/6000.5)样式数值相同。无法在不动 Unity 内部样式的前提下去掉,所有 GraphView 搜索窗口的分组(如 Add Component 菜单)都这样
+- `new GUIStyle(...)` 必须在 OnGUI 上下文调用;类加载时(如注册菜单触发静态初始化)创建会抛"can only be called from inside OnGUI",需用惰性初始化(见 `DialogueGraphWindow.SubtitleStyle`)
 
-生成时间:2026-08-10(最后更新:2026-08-15 GraphView 快捷键 Ctrl+S/C/V)
+生成时间:2026-08-10(最后更新:2026-08-16 Unity 6 双版本兼容 + 详情面板折叠/配色)
