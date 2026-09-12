@@ -96,8 +96,8 @@ Assets/DialogueSystem/
 - 事件类型颜色存 EditorPrefs(本机偏好),不随对话资产迁移;新机器上未自定义类型自动回落到哈希自动色
 - IMGUI 拾色器(EditorGUILayout.ColorField)点击瞬间会抛 `ExitGUIException` 中断当帧 GUI,这是正常控制流;`DrawNodeInspector` 的 catch 已单独放行(`catch (ExitGUIException) { throw; }`),不要再吞掉它,否则报错且 GUI 状态错乱
 - NPOI 是 2.1.1 旧版 API:加粗用 `IFont.Boldweight = (short)FontBoldWeight.Bold`(2.5+ 才有 `IsBold`);升级 NPOI 时 DialogueTextExporter 与 verify.sh 第③步需同步改
-- Unity 6(6000.x)兼容:`EditorUtility.InstanceIDToObject` 在 Unity 6 被标"过时=报错"(CS0619),必须用 `EntityIdToObject`,但 2022 又没有新 API —— `DialogueGraphWindow.OnOpenAsset` 里用 `#if UNITY_6000_0_OR_NEWER` 条件编译(实测 6000.5 有该宏、2022.3 无)。`int→EntityId` 隐式转换带 CS0618 警告但编码正确,`EntityId.FromULong((ulong)(uint)id)` 编码与隐式转换**不相等**(实测全部不等,含 0),不能用,故局部 `#pragma` 屏蔽警告
+- Unity 6(6000.x)兼容:InstanceID 体系被 64 位 `EntityId` 取代——6000.5 里 `EditorUtility.InstanceIDToObject` 已是"过时=报错"(CS0619),要用 `EntityIdToObject`,但 2022 没有新 API;6000.6(Unity 6.6)起 `[OnOpenAsset]` **只支持 EntityId 参数签名**(int 重载移除),且 `int→EntityId` 隐式转换从警告升级为 CS0619 硬错误(pragma 无法屏蔽),`EntityId.FromULong((ulong)(uint)id)` 编码与隐式转换**不相等**(实测全部不等,含 0),不能用。因此 `DialogueGraphWindow.OnOpenAsset` 三分支条件编译:6000.6+(`UNITY_6000_6_OR_NEWER`)直接用 `(EntityId, int)` 签名收参,全程无 int 转换;6000.0~6000.5 用 int 签名 + 隐式转换(局部 `#pragma` 屏蔽 CS0618);2022 用 `InstanceIDToObject`。6000.6 分支按官方迁移文档适配(docs.unity3d.com 6000.7 Manual "Migrate from InstanceID to EntityId"),尚未在真实 6.6 编辑器实测
 - 右键创建菜单里"事件节点"分组条目前面的空格是 Unity 内置行为,不是本项目 bug:SearchWindow 对分组(`SearchTreeGroupEntry`)用 `AC GroupButton` 样式(padding.left=18),对普通条目用 `AC ComponentButton`(padding.left=1),并在分组右侧画展开箭头;两个版本(2022.3/6000.5)样式数值相同。无法在不动 Unity 内部样式的前提下去掉,所有 GraphView 搜索窗口的分组(如 Add Component 菜单)都这样
 - `new GUIStyle(...)` 必须在 OnGUI 上下文调用;类加载时(如注册菜单触发静态初始化)创建会抛"can only be called from inside OnGUI",需用惰性初始化(见 `DialogueGraphWindow.SubtitleStyle`)
 
-生成时间:2026-08-10(最后更新:2026-08-16 Unity 6 双版本兼容 + 详情面板折叠/配色)
+生成时间:2026-08-10(最后更新:2026-09-12 Unity 6.6 OnOpenAsset EntityId 签名适配)

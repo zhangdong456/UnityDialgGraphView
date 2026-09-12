@@ -40,14 +40,25 @@ namespace DialogueSystem.Editor
             return window;
         }
 
+        // Unity 6.6(6000.6)起 OnOpenAsset 只支持 EntityId 参数签名,int 重载被移除,
+        // int→EntityId 隐式转换也从警告(CS0618)升级为硬错误(CS0619,pragma 无法屏蔽),
+        // 因此直接用 EntityId 收参数,全程不做 int 转换;2022 与 6000.0~6000.5 走 int 签名。
+#if UNITY_6000_6_OR_NEWER
+        [OnOpenAsset]
+        static bool OnOpenAsset(EntityId entityId, int line)
+        {
+            var target = EditorUtility.EntityIdToObject(entityId) as DialogueGraphAsset;
+            if (target == null) return false;
+            OpenWith(target);
+            return true;
+        }
+#else
         [OnOpenAsset]
         static bool OnOpenAsset(int instanceId, int line)
         {
-            // Unity 6 起 InstanceIDToObject 被标记为"过时=报错"(CS0619),必须改用 EntityIdToObject;
-            // 2022 又没有新 API,因此按版本条件编译,保证两个版本都能编译通过。
-            // EntityId.FromULong 编码与 int 隐式转换不同(实测结果不相等),不能用;
-            // int→EntityId 隐式转换只带"未来移除"警告,是当前正确做法,故局部屏蔽 CS0618。
 #if UNITY_6000_0_OR_NEWER
+            // 6000.0~6000.5:InstanceIDToObject 已是 CS0619,改用 EntityIdToObject;
+            // int→EntityId 隐式转换此时仍只是警告(CS0618),局部屏蔽。
 #pragma warning disable CS0618
             var target = EditorUtility.EntityIdToObject(instanceId) as DialogueGraphAsset;
 #pragma warning restore CS0618
@@ -58,6 +69,7 @@ namespace DialogueSystem.Editor
             OpenWith(target);
             return true;
         }
+#endif
 
         public static void OpenWith(DialogueGraphAsset target)
         {
